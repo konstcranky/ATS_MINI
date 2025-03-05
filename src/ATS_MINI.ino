@@ -253,6 +253,7 @@
 #else
 #define SPARE2      14
 #endif
+#define SAVED       15
 
 
 #define TFT_MENU_BACK TFT_BLACK              // 0x01E9
@@ -308,6 +309,7 @@ bool cmdSoftMuteMaxAtt = false;
 bool cmdCal = false;
 bool cmdBrt = false;
 bool cmdAvc = false;
+bool cmdSaved = false;
 
 bool fmRDS = false;
 
@@ -403,8 +405,8 @@ const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",  
 // Without BFO        <---- 00 ----> <---- 01 ----> <---- 02 ----> <---- 03 ----> <---- 04 ----> <---- 05 ----> <---- 06 ----> <---- 07 ----> <---- 08 ----> <---- 09 ---->
 const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",     "Bandwidth",      "Mute",      "AGC/ATTN",    "SoftMute",       "AVC",       "Spare 1",
 
-//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ---->
-                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2"  };
+//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> <---- 15 ---->
+                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2",     "Saved"    };
 
 #endif
 
@@ -490,6 +492,42 @@ const char *bandModeDesc[] = {"FM", "LSB", "USB", "AM"};
 const int lastBandModeDesc = (sizeof bandModeDesc / sizeof(char *)) - 1;
 uint8_t currentMode = FM;
 
+typedef struct
+{
+  const char *name;
+  uint8_t bandType;
+  uint16_t freq;
+} savedFreqs;
+
+savedFreqs savedDesc[] = {
+  { "> Curr",       FM_BAND_TYPE, 10000 },
+  { "Pershe",       FM_BAND_TYPE, 8820 },
+  { "Radio NV",     FM_BAND_TYPE, 8860 },
+  { "Radio Rocks",  FM_BAND_TYPE, 8910 },
+  { "Galychyna",    FM_BAND_TYPE, 8970 },
+  { "Shlager",      FM_BAND_TYPE, 9040 },
+  { "Kiss",         FM_BAND_TYPE, 9110 },
+  { "Melodia",      FM_BAND_TYPE, 9150 },
+  { "Piatnytsia",   FM_BAND_TYPE, 9190 },
+  { "Armiya FM",    FM_BAND_TYPE, 9240 },
+  { "Relax",        FM_BAND_TYPE, 9330 },
+  { "Nostalgie",    FM_BAND_TYPE, 9700 },
+  { "Lviv.fm",      FM_BAND_TYPE, 10080 },
+  { "Krayina",      FM_BAND_TYPE, 10130 },
+  { "Hit FM",       FM_BAND_TYPE, 10170 },
+  { "Maximum",      FM_BAND_TYPE, 10210 },
+  { "Promin",       FM_BAND_TYPE, 10250 },
+  { "UA Radio",     FM_BAND_TYPE, 10330 },
+  { "Kultura",      FM_BAND_TYPE, 10390 },
+  { "Duzhe",        FM_BAND_TYPE, 10430 },
+  { "Lux FM",       FM_BAND_TYPE, 10470 },
+  { "Jazz",         FM_BAND_TYPE, 10540 },
+  { "Nashe",        FM_BAND_TYPE, 10600 },
+  { "Nezalezhnist", FM_BAND_TYPE, 10670 },
+  { "Bayraktar",    FM_BAND_TYPE, 10720 },
+};
+const int lastSavedDesc = (sizeof savedDesc / sizeof(savedFreqs)) - 1;
+uint8_t savedIdx = 0;
 
 /**
  *  Band data structure
@@ -1002,8 +1040,8 @@ void disableCommands()
   // showCommandStatus((char *) "VFO ");
   cmdCal = false;
   cmdBrt = false;
-  cmdAvc = false;  
-  
+  cmdAvc = false;
+  cmdSaved = false;
 }
 
 /**
@@ -1750,6 +1788,11 @@ void doCurrentMenuCmd() {
       showAvc(); 
       break;
 
+    case SAVED:
+      cmdSaved = true;
+      drawSprite();
+      break;
+
     default:
       showStatus();
       break;
@@ -1762,7 +1805,7 @@ void doCurrentMenuCmd() {
  * Return true if the current status is Menu command
  */
 bool isMenuMode() {
-  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
+  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc | cmdSaved);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
 }
 
 uint8_t getStrength() {
@@ -1866,6 +1909,9 @@ void drawMenu() {
           spr.drawString(bandwidthFM[abs((bwIdxFM+lastBandwidthFM+1+i)%(lastBandwidthFM+1))].desc,38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y+(i*16),2);
         }
       }
+      if (cmdSaved) {
+        spr.drawString(savedDesc[abs((savedIdx+lastSavedDesc+1+i)%(lastSavedDesc+1))].name,38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y+(i*16),2);
+      }
     }
     if (cmdVolume) {
       spr.setTextColor(0xBEDF,TFT_MENU_BACK);
@@ -1917,7 +1963,7 @@ void drawMenu() {
       spr.drawNumber(currentAVC,38+menu_offset_x+(menu_delta_x/2),60+menu_offset_y,4);
       spr.drawString("dB",38+menu_offset_x+(menu_delta_x/2),90+menu_offset_y,4);
     }
-        
+
     spr.setTextColor(TFT_WHITE,TFT_BLACK);
   }
 }
@@ -2467,6 +2513,26 @@ void showAvc()
 drawSprite();
 }
 
+void doSaved(int8_t v)
+{
+  savedIdx = (v == 1) ? savedIdx + 1 : savedIdx - 1;
+
+  if (savedIdx > lastSavedDesc) {
+    savedIdx = (v == 1) ? 0 : lastSavedDesc;
+  } else if (savedIdx < 0)
+    savedIdx = lastSavedDesc;
+
+  if (savedIdx != 0) {
+    if (bandIdx == savedDesc[savedIdx].bandType) {
+      currentFrequency = savedDesc[savedIdx].freq;
+      band[bandIdx].currentFreq = currentFrequency;
+      rx.setFrequency(currentFrequency);
+    }
+  }
+
+  drawSprite();
+  delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
+}
 
 void button_check()
 {
@@ -2566,7 +2632,9 @@ void loop()
     else if (cmdBrt)
       doBrt(encoderCount);
     else if (cmdAvc)
-      doAvc(encoderCount);    
+      doAvc(encoderCount);
+    else if (cmdSaved)
+      doSaved(encoderCount);
 
     // G8PTN: Added SSB tuning
     else if (isSSB()) {
