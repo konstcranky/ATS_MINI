@@ -59,6 +59,8 @@
 
     - Modified FM steps options (50k, 100k, 200k, 1M)
 
+    - Added "MODE" configuration per band (FM, AM, LSB, USB)
+
     - Added a REMOTE serial interface for debug control and monitoring
     
 
@@ -124,6 +126,7 @@
   | Date        | F/W Ver  |  app_ver  |  Comments                                         |
   ==========================================================================================
   | 03/03/2025  | v1.00    |  100      |  FreqUp/Dn modified, 1MHz FM step, SI4732 GPO1    |
+  | 05/03/2025  | v1.01    |  101      |  Added MODE per band, Improved tuning speed       |
   |             |          |           |                                                   |
   ==========================================================================================  
   
@@ -174,13 +177,18 @@
 // Compile options (0 = Disable, 1 = Enable)
 // BFO Menu option
 #define BFO_MENU_EN 0         // Allows BFO menu option for debug
+
 // Serial.print control
 #define DEBUG1_PRINT 0        // Highest level - Primary information 
 #define DEBUG2_PRINT 0        //               - Function call results
 #define DEBUG3_PRINT 0        //               - Misc
 #define DEBUG4_PRINT 0        // Lowest level  - EEPROM
+
 // Remote Control
-#define USE_REMOTE 1          // Allows basic serial control and monitoring  
+#define USE_REMOTE 1          // Allows basic serial control and monitoring
+
+// Tune hold off enable (0 = Disable, 1 = Enable)
+#define TUNE_HOLDOFF 1        // Whilst tuning holds off display update
 
 // Display position control
 // Added during development, code could be replaced with fixed values
@@ -220,6 +228,7 @@
 #define RDS_CHECK_TIME         250  // Increased from 90
 
 #define BACKGROUND_REFRESH_TIME 5000    // Background screen refresh time. Covers the situation where there are no other events causing a refresh
+#define TUNE_HOLDOFF_TIME         90    // Timer to hold off display whilst tuning
 
 // Band Types
 #define FM_BAND_TYPE 0
@@ -253,7 +262,6 @@
 #else
 #define SPARE2      14
 #endif
-#define SAVED       15
 
 
 #define TFT_MENU_BACK TFT_BLACK              // 0x01E9
@@ -275,8 +283,8 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 // ====================================================================================================================================================
 // Update F/W version comment as required   F/W VER    Function                                                           Locn (dec)            Bytes
 // ====================================================================================================================================================
-const uint8_t  app_id  = 47;          //               EEPROM ID.  If EEPROM read value mismatch, reset EEPROM            eeprom_address        1
-const uint16_t app_ver = 100;         //     v1.00     EEPROM VER. If EEPROM read value mismatch (older), reset EEPROM    eeprom_ver_address    2
+const uint8_t  app_id  = 65;          //               EEPROM ID.  If EEPROM read value mismatch, reset EEPROM            eeprom_address        1
+const uint16_t app_ver = 101;         //     v1.01     EEPROM VER. If EEPROM read value mismatch (older), reset EEPROM    eeprom_ver_address    2
 const int eeprom_address = 0;         //               EEPROM start address
 const int eeprom_set_address = 256;   //               EEPROM setting base adddress
 const int eeprom_setp_address = 272;  //               EEPROM setting (per band) base adddress
@@ -309,7 +317,6 @@ bool cmdSoftMuteMaxAtt = false;
 bool cmdCal = false;
 bool cmdBrt = false;
 bool cmdAvc = false;
-bool cmdSaved = false;
 
 bool fmRDS = false;
 
@@ -368,6 +375,8 @@ int8_t currentAVC = 48;                 // Selected AVC, range = 12 to 90 in ste
 
 // Background screen refresh
 uint32_t background_timer = millis();   // Background screen refresh timer.
+uint32_t tuning_timer = millis();       // Tuning hold off timer.
+bool tuning_flag = false;               // Flag to indicate tuning
 
 // Battery monitoring
 uint16_t adc_read_total = 0;            // Total ADC count
@@ -405,8 +414,8 @@ const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",  
 // Without BFO        <---- 00 ----> <---- 01 ----> <---- 02 ----> <---- 03 ----> <---- 04 ----> <---- 05 ----> <---- 06 ----> <---- 07 ----> <---- 08 ----> <---- 09 ---->
 const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",     "Bandwidth",      "Mute",      "AGC/ATTN",    "SoftMute",       "AVC",       "Spare 1",
 
-//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> <---- 15 ---->
-                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2",     "Saved"    };
+//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ---->
+                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2"  };
 
 #endif
 
@@ -469,9 +478,12 @@ int tabAmStep[] = {1,      // 0   AM/SSB   (kHz)
                    100,    // 10  SSB      (Hz)
                    500};   // 11  SSB      (Hz)
 
-uint8_t AmTotalSteps = 7;
-uint8_t AmTotalStepsSsb = 4;
-uint8_t SsbTotalSteps = 5;
+uint8_t AmTotalSteps = 7;                          // Total AM steps
+uint8_t AmTotalStepsSsb = 4;                       // G8PTN: Original : AM(LW/MW) 1k, 5k, 9k, 10k, 50k        : SSB 1k, 5k, 9k, 10k
+//uint8_t AmTotalStepsSsb = 5;                     // G8PTN: Option 1 : AM(LW/MW) 1k, 5k, 9k, 10k, 100k       : SSB 1k, 5k, 9k, 10k, 50k
+//uint8_t AmTotalStepsSsb = 6;                     // G8PTN: Option 2 : AM(LW/MW) 1k, 5k, 9k, 10k, 100k , 1M  : SSB 1k, 5k, 9k, 10k, 50k, 100k
+//uint8_t AmTotalStepsSsb = 7;                     // G8PTN: Invalid option (Do not use)
+uint8_t SsbTotalSteps = 5;                         // SSB sub 1kHz steps 
 volatile int8_t idxAmStep = 3;
 
 
@@ -492,42 +504,6 @@ const char *bandModeDesc[] = {"FM", "LSB", "USB", "AM"};
 const int lastBandModeDesc = (sizeof bandModeDesc / sizeof(char *)) - 1;
 uint8_t currentMode = FM;
 
-typedef struct
-{
-  const char *name;
-  uint8_t bandType;
-  uint16_t freq;
-} savedFreqs;
-
-savedFreqs savedDesc[] = {
-  { "> Curr",       FM_BAND_TYPE, 10000 },
-  { "Pershe",       FM_BAND_TYPE, 8820 },
-  { "Radio NV",     FM_BAND_TYPE, 8860 },
-  { "Radio Rocks",  FM_BAND_TYPE, 8910 },
-  { "Galychyna",    FM_BAND_TYPE, 8970 },
-  { "Shlager",      FM_BAND_TYPE, 9040 },
-  { "Kiss",         FM_BAND_TYPE, 9110 },
-  { "Melodia",      FM_BAND_TYPE, 9150 },
-  { "Piatnytsia",   FM_BAND_TYPE, 9190 },
-  { "Armiya FM",    FM_BAND_TYPE, 9240 },
-  { "Relax",        FM_BAND_TYPE, 9330 },
-  { "Nostalgie",    FM_BAND_TYPE, 9700 },
-  { "Lviv.fm",      FM_BAND_TYPE, 10080 },
-  { "Krayina",      FM_BAND_TYPE, 10130 },
-  { "Hit FM",       FM_BAND_TYPE, 10170 },
-  { "Maximum",      FM_BAND_TYPE, 10210 },
-  { "Promin",       FM_BAND_TYPE, 10250 },
-  { "UA Radio",     FM_BAND_TYPE, 10330 },
-  { "Kultura",      FM_BAND_TYPE, 10390 },
-  { "Duzhe",        FM_BAND_TYPE, 10430 },
-  { "Lux FM",       FM_BAND_TYPE, 10470 },
-  { "Jazz",         FM_BAND_TYPE, 10540 },
-  { "Nashe",        FM_BAND_TYPE, 10600 },
-  { "Nezalezhnist", FM_BAND_TYPE, 10670 },
-  { "Bayraktar",    FM_BAND_TYPE, 10720 },
-};
-const int lastSavedDesc = (sizeof savedDesc / sizeof(savedFreqs)) - 1;
-uint8_t savedIdx = 0;
 
 /**
  *  Band data structure
@@ -585,6 +561,11 @@ int bandIdx = 0;
 // Calibration (per band). Size needs to be the same as band[]
 // Defaults
 int16_t bandCAL[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+// Mode (per band). Size needs to be the same as band[] and mode needs to be appropriate for bandType
+// Example bandType = FM_BAND_TYPE, bandMODE = FM. All other BAND_TYPE's, bandMODE = AM/LSB/USB
+// Defaults
+uint8_t bandMODE[] = {FM, AM, AM, AM, LSB, AM, AM, LSB, AM, AM, AM, AM, USB, AM, AM, USB, AM, AM, USB, AM};
 
 char *rdsMsg;
 char *stationName;
@@ -863,7 +844,7 @@ void saveAllReceiverInformation()
   EEPROM.write(eeprom_address + 1, rx.getVolume());     // Stores the current Volume
   EEPROM.write(eeprom_address + 2, bandIdx);            // Stores the current band
   EEPROM.write(eeprom_address + 3, fmRDS);              // G8PTN: Not used
-  EEPROM.write(eeprom_address + 4, currentMode);        // Stores the current Mode (FM / AM / SSB)
+  EEPROM.write(eeprom_address + 4, currentMode);        // Stores the current Mode (FM / AM / LSB / USB). Now per mode, leave for compatibility
   EEPROM.write(eeprom_address + 5, currentBFOs >> 8);   // G8PTN: Stores the current BFO % 1000 (HIGH byte)
   EEPROM.write(eeprom_address + 6, currentBFOs & 0XFF); // G8PTN: Stores the current BFO % 1000 (LOW byte)
   EEPROM.commit();
@@ -904,6 +885,7 @@ void saveAllReceiverInformation()
   {
     EEPROM.write(addr_offset++, (bandCAL[i] >> 8));     // Stores the current Calibration value (HIGH byte) for the band
     EEPROM.write(addr_offset++, (bandCAL[i] & 0XFF));   // Stores the current Calibration value (LOW byte) for the band
+    EEPROM.write(addr_offset++,  bandMODE[i]);          // Stores the current Mode value for the band
     EEPROM.commit();
   }  
 
@@ -928,7 +910,7 @@ void readAllReceiverInformation()
   volume = EEPROM.read(eeprom_address + 1); // Gets the stored volume;
   bandIdx = EEPROM.read(eeprom_address + 2);
   fmRDS = EEPROM.read(eeprom_address + 3);                // G8PTN: Not used
-  currentMode = EEPROM.read(eeprom_address + 4);
+  currentMode = EEPROM.read(eeprom_address + 4);          // G8PTM: Reads stored Mode. Now per mode, leave for compatibility
   currentBFO = EEPROM.read(eeprom_address + 5) << 8;      // G8PTN: Reads stored BFO value (HIGH byte)
   currentBFO |= EEPROM.read(eeprom_address + 6);          // G8PTN: Reads stored BFO value (HIGH byte)
 
@@ -956,8 +938,9 @@ void readAllReceiverInformation()
   addr_offset = eeprom_setp_address;
   for (int i = 0; i <= lastBand; i++)
   {
-    bandCAL[i]  = EEPROM.read(addr_offset++) << 8;        // Reads stored Calibration value (HIGH byte) per band
-    bandCAL[i] |= EEPROM.read(addr_offset++);             // Reads stored Calibration value (LOW byte) per band
+    bandCAL[i]    = EEPROM.read(addr_offset++) << 8;      // Reads stored Calibration value (HIGH byte) per band
+    bandCAL[i]   |= EEPROM.read(addr_offset++);           // Reads stored Calibration value (LOW byte) per band
+    bandMODE[i]   = EEPROM.read(addr_offset++);           // Reads stored Mode value per band
   }
 
   EEPROM.end();
@@ -966,7 +949,8 @@ void readAllReceiverInformation()
   ledcWrite(0, currentBrt);
 
   currentFrequency = band[bandIdx].currentFreq;
-
+  currentMode = bandMODE[bandIdx];                       // G8PTN: Added to support mode per band
+  
   if (band[bandIdx].bandType == FM_BAND_TYPE)
   {
     currentStepIdx = idxFmStep = band[bandIdx].currentStepIdx;
@@ -1040,8 +1024,8 @@ void disableCommands()
   // showCommandStatus((char *) "VFO ");
   cmdCal = false;
   cmdBrt = false;
-  cmdAvc = false;
-  cmdSaved = false;
+  cmdAvc = false;  
+  
 }
 
 /**
@@ -1172,6 +1156,29 @@ void setBand(int8_t up_down)
     bandIdx = (bandIdx < lastBand) ? (bandIdx + 1) : 0;
   else
     bandIdx = (bandIdx > 0) ? (bandIdx - 1) : lastBand;
+
+  // G8PTN: Added to support mode per band
+  currentMode = bandMODE[bandIdx];
+  if (isSSB())
+  {
+    if (ssbLoaded == false)
+    {
+      // Only loadSSB if not already loaded
+      spr.fillSmoothRoundRect(80,40,160,40,4,TFT_WHITE);
+      spr.fillSmoothRoundRect(81,41,158,38,4,TFT_MENU_BACK);
+      spr.drawString("Loading SSB",160,62,4);
+      spr.pushSprite(0,0);
+    
+      loadSSB();
+      ssbLoaded = true;  
+    }
+  } 
+  else {
+    // If not SSB
+    ssbLoaded = false;    
+  }
+
+  
   useBand();
   delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
   elapsedCommand = millis();
@@ -1182,6 +1189,7 @@ void setBand(int8_t up_down)
  */
 void useBand()
 {
+  currentMode = bandMODE[bandIdx];                  // G8PTN: Added to support mode per band
   if (band[bandIdx].bandType == FM_BAND_TYPE)
   {
     currentMode = FM;
@@ -1304,6 +1312,9 @@ void useBand()
   Serial.print(", currentMode = ");
   Serial.println(currentMode);
   #endif
+
+  // Store mode
+  bandMODE[bandIdx] = currentMode;               // G8PTN: Added to support mode per band
   
   rssi = 0;
   snr = 0;
@@ -1528,6 +1539,8 @@ void doStep(int8_t v)
  */
 void doMode(int8_t v)
 {
+  currentMode = bandMODE[bandIdx];               // G8PTN: Added to support mode per band
+  
   if (currentMode != FM)                         // Nothing to do if FM mode
   {
     if (v == 1)  { // clockwise
@@ -1584,6 +1597,7 @@ void doMode(int8_t v)
     
     band[bandIdx].currentFreq = currentFrequency;
     band[bandIdx].currentStepIdx = currentStepIdx;
+    bandMODE[bandIdx] = currentMode;                      // G8PTN: Added to support mode per band
     useBand();
   }
   delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
@@ -1788,11 +1802,6 @@ void doCurrentMenuCmd() {
       showAvc(); 
       break;
 
-    case SAVED:
-      cmdSaved = true;
-      drawSprite();
-      break;
-
     default:
       showStatus();
       break;
@@ -1805,7 +1814,7 @@ void doCurrentMenuCmd() {
  * Return true if the current status is Menu command
  */
 bool isMenuMode() {
-  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc | cmdSaved);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
+  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
 }
 
 uint8_t getStrength() {
@@ -1909,9 +1918,6 @@ void drawMenu() {
           spr.drawString(bandwidthFM[abs((bwIdxFM+lastBandwidthFM+1+i)%(lastBandwidthFM+1))].desc,38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y+(i*16),2);
         }
       }
-      if (cmdSaved) {
-        spr.drawString(savedDesc[abs((savedIdx+lastSavedDesc+1+i)%(lastSavedDesc+1))].name,38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y+(i*16),2);
-      }
     }
     if (cmdVolume) {
       spr.setTextColor(0xBEDF,TFT_MENU_BACK);
@@ -1963,7 +1969,7 @@ void drawMenu() {
       spr.drawNumber(currentAVC,38+menu_offset_x+(menu_delta_x/2),60+menu_offset_y,4);
       spr.drawString("dB",38+menu_offset_x+(menu_delta_x/2),90+menu_offset_y,4);
     }
-
+        
     spr.setTextColor(TFT_WHITE,TFT_BLACK);
   }
 }
@@ -2156,9 +2162,19 @@ void drawSprite()
     spr.drawString(bandModeDesc[currentMode],38+mode_offset_x,11+mode_offset_y,2);
   }
   */
- 
-  batteryMonitor();   
+
+#if TUNE_HOLDOFF
+  // Update if not tuning
+  if (tuning_flag == false) {
+    batteryMonitor();
+    spr.pushSprite(0,0);
+  }  
+#else
+  // No hold off
+  batteryMonitor();
   spr.pushSprite(0,0);
+#endif
+  
 }
 
 
@@ -2310,7 +2326,7 @@ void batteryMonitor() {
 
   spr.setTextColor(TFT_WHITE,TFT_BLACK);
   spr.setTextDatum(MC_DATUM);
-  spr.pushSprite(0,0);
+  //spr.pushSprite(0,0);            // G8PTN: Not needed
   
 }
 
@@ -2344,15 +2360,17 @@ void doFrequencyTuneSSB()
     updateBFO();
 
     if (redundant != 0)
+      
     {
+        clampSSBBand();                                   // G8PTN: Added          
         rx.setFrequency(currentFrequency);
         //agcSetFunc(); //Re-apply to remove noize        // G8PTN: Commented out
         currentFrequency = rx.getFrequency();
-        //band[bandIdx].currentFreq = currentFrequency;   // G8PTN: Commented out, covered below 
+        //band[bandIdx].currentFreq = currentFrequency;   // G8PTN: Commented out, covered below
     }
 
     band[bandIdx].currentFreq = currentFrequency + (currentBFO / 1000);     // Update band table currentFreq
-   
+
     //g_lastFreqChange = millis();
     //g_previousFrequency = 0; //Force EEPROM update
     if (clampSSBBand()) {
@@ -2372,15 +2390,21 @@ bool clampSSBBand()
 {
     uint16_t freq = currentFrequency + (currentBFO / 1000);
 
+    // Special case to cover SSB frequency negative!
+    bool SsbFreqNeg = false; 
+    if (currentFrequency & 0x8000)
+      SsbFreqNeg = true;
+
+    // Priority to minimum check to cover SSB frequency negative
     bool upd = false;
-    if (freq > band[bandIdx].maximumFreq)
-    {
-        currentFrequency = band[bandIdx].minimumFreq;
-        upd = true;
-    }
-    else if (freq < band[bandIdx].minimumFreq)
+    if (freq < band[bandIdx].minimumFreq || SsbFreqNeg)
     {
         currentFrequency = band[bandIdx].maximumFreq;
+        upd = true;
+    }
+    else if (freq > band[bandIdx].maximumFreq)
+    {
+        currentFrequency = band[bandIdx].minimumFreq;
         upd = true;
     }
 
@@ -2513,26 +2537,6 @@ void showAvc()
 drawSprite();
 }
 
-void doSaved(int8_t v)
-{
-  savedIdx = (v == 1) ? savedIdx + 1 : savedIdx - 1;
-
-  if (savedIdx > lastSavedDesc) {
-    savedIdx = (v == 1) ? 0 : lastSavedDesc;
-  } else if (savedIdx < 0)
-    savedIdx = lastSavedDesc;
-
-  if (savedIdx != 0) {
-    if (bandIdx == savedDesc[savedIdx].bandType) {
-      currentFrequency = savedDesc[savedIdx].freq;
-      band[bandIdx].currentFreq = currentFrequency;
-      rx.setFrequency(currentFrequency);
-    }
-  }
-
-  drawSprite();
-  delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
-}
 
 void button_check()
 {
@@ -2632,12 +2636,24 @@ void loop()
     else if (cmdBrt)
       doBrt(encoderCount);
     else if (cmdAvc)
-      doAvc(encoderCount);
-    else if (cmdSaved)
-      doSaved(encoderCount);
+      doAvc(encoderCount);    
 
     // G8PTN: Added SSB tuning
     else if (isSSB()) {
+
+#if TUNE_HOLDOFF
+      // Tuning timer to hold off (SSB) display updates
+      tuning_flag = true;
+      tuning_timer = millis();
+      #if DEBUG3_PRINT
+      Serial.print("Info: TUNE_HOLDOFF SSB (Set) >>> ");
+      Serial.print("tuning_flag = ");
+      Serial.print(tuning_flag);
+      Serial.print(", millis = ");
+      Serial.println(millis());
+      #endif      
+#endif
+      
       doFrequencyTuneSSB();
       currentFrequency = rx.getFrequency();
       
@@ -2656,6 +2672,18 @@ void loop()
     }
     else {
 
+#if TUNE_HOLDOFF
+      // Tuning timer to hold off (FM/AM) display updates
+      tuning_flag = true;
+      tuning_timer = millis();
+      #if DEBUG3_PRINT
+      Serial.print("Info: TUNE_HOLDOFF FM/AM (Set) >>> ");
+      Serial.print("tuning_flag = ");     
+      Serial.print(tuning_flag);
+      Serial.print(", millis = ");
+      Serial.println(millis());
+      #endif    
+#endif
 
       // G8PTN: Used in place of rx.frequencyUp() and rx.frequencyDown()
       if (currentMode == FM)
@@ -2672,7 +2700,7 @@ void loop()
       if ((currentMode == AM) && (currentFrequency & 0x8000))
         AmFreqNeg = true;
 
-      // Pririty to minimum check to cover AM frequency negative
+      // Priority to minimum check to cover AM frequency negative
       if ((currentFrequency < bMin) || AmFreqNeg)
         currentFrequency = bMax;                                           // Lower band limit or AM frequency negative
       else if (currentFrequency > bMax)                                  
@@ -2844,6 +2872,23 @@ void loop()
     if (!isMenuMode()) showStatus(); 
   }
 
+#if TUNE_HOLDOFF
+  // Check if tuning flag is set
+  if (tuning_flag == true) {
+    if ((millis() - tuning_timer) > TUNE_HOLDOFF_TIME) {
+      tuning_flag = false;
+      showFrequency();
+      #if DEBUG3_PRINT
+      Serial.print("Info: TUNE_HOLDOFF FM/AM (Reset) >>> ");
+      Serial.print("tuning_flag = ");
+      Serial.print(tuning_flag);
+      Serial.print(", millis = ");
+      Serial.println(millis()); 
+      #endif 
+    } 
+  }
+#endif
+    
   // Run clock
   clock_time();
 
