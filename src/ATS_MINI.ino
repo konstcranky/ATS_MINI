@@ -890,6 +890,15 @@ void setup()
   // ICACHE_RAM_ATTR void rotaryEncoder(); see rotaryEncoder implementation below.
   attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), rotaryEncoder, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), rotaryEncoder, CHANGE);
+
+  // restore savedIdx - saved station index
+  for (int i = 1; i < lastSavedDesc; i++) {
+    if ((bandIdx == savedDesc[i].bandType) &&
+    (band[bandIdx].currentFreq == savedDesc[i].freq)) {
+      savedIdx = i;
+      break;
+    }
+  }
 }
 
 
