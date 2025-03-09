@@ -158,6 +158,7 @@ const char* ssid = "WiFi_SSID";
 const char* password =  "WiFi_Password";
 #endif
 WebServer server(80);
+int8_t isWifiEnabled = false;
 
 
 // =================================
@@ -278,7 +279,8 @@ WebServer server(80);
 #else
 #define SPARE2      14
 #endif
-#define SAVED       15
+#define WIFI        15
+#define SAVED       16
 
 
 #define TFT_MENU_BACK TFT_BLACK              // 0x01E9
@@ -334,6 +336,7 @@ bool cmdSoftMuteMaxAtt = false;
 bool cmdCal = false;
 bool cmdBrt = false;
 bool cmdAvc = false;
+bool cmdWifi = false;
 bool cmdSaved = false;
 
 bool fmRDS = false;
@@ -432,8 +435,8 @@ const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",  
 // Without BFO        <---- 00 ----> <---- 01 ----> <---- 02 ----> <---- 03 ----> <---- 04 ----> <---- 05 ----> <---- 06 ----> <---- 07 ----> <---- 08 ----> <---- 09 ---->
 const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",     "Bandwidth",      "Mute",      "AGC/ATTN",    "SoftMute",       "AVC",       "Spare 1",
 
-//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> <---- 15 ---->
-                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2",     "Saved"    };
+//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> <---- 15 ----> <---- 16 ---->
+                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2",      "Wifi",       "Saved"    };
 
 #endif
 
@@ -521,6 +524,10 @@ uint16_t currentStepIdx = 1;
 const char *bandModeDesc[] = {"FM", "LSB", "USB", "AM"};
 const int lastBandModeDesc = (sizeof bandModeDesc / sizeof(char *)) - 1;
 uint8_t currentMode = FM;
+
+const char *wifiDesc[] = {"OFF", "ON"};
+const int lastWifiDesc = (sizeof wifiDesc / sizeof(char *)) - 1;
+uint8_t wifiIdx = 0;
 
 typedef struct
 {
@@ -749,31 +756,6 @@ void setup()
   tft.println();
   tft.println("To reset EEPROM");
   tft.println("Press+Hold ENC Button");
-  tft.println();
-  tft.println("Connecting to Wifi...");
-  tft.println();
-  
-  WiFi.mode(WIFI_STA); //Optional
-  WiFi.begin(ssid, password);
-  Serial.println("\nConnecting");
-  // while(WiFi.status() != WL_CONNECTED){
-  //   Serial.print(".");
-  //   delay(500);
-  // }
-  // Serial.println("\nConnected to the WiFi network");
-  // Serial.print("Local ESP32 IP: ");
-  // Serial.println(WiFi.localIP());
-
-  // let it work in loop()
-  // timeClient.update();
-
-  server.on("/", handle_OnConnect);
-  server.onNotFound(handle_NotFound);
-  server.begin();
-  Serial.println("HTTP server started");
-
-  // tft.println("IP Address : ");
-  // tft.println(WiFi.localIP());
   
   delay(3000);
 
@@ -869,6 +851,18 @@ void setup()
     saveAllReceiverInformation();                        // Set EEPROM to defaults
     rx.setVolume(volume);                                // Set initial volume after EEPROM reset
     ledcWrite(0, currentBrt);                            // Set initial brightness after EEPROM reset
+  }
+
+  wifiIdx = isWifiEnabled;
+  if (isWifiEnabled) {
+    WiFi.mode(WIFI_STA); //Optional
+    WiFi.begin(ssid, password);
+    Serial.println("\nConnecting");
+
+    server.on("/", handle_OnConnect);
+    server.onNotFound(handle_NotFound);
+    server.begin();
+    Serial.println("HTTP server started");
   }
 
   // Debug
@@ -986,6 +980,9 @@ void saveAllReceiverInformation()
     EEPROM.commit();
   }  
 
+  EEPROM.write(addr_offset++,  isWifiEnabled);
+  EEPROM.commit();
+
   addr_offset = eeprom_ver_address;  
   EEPROM.write(addr_offset++, app_ver >> 8);            // Stores app_ver (HIGH byte)
   EEPROM.write(addr_offset++, app_ver & 0XFF);          // Stores app_ver (LOW byte)
@@ -1039,6 +1036,8 @@ void readAllReceiverInformation()
     bandCAL[i]   |= EEPROM.read(addr_offset++);           // Reads stored Calibration value (LOW byte) per band
     bandMODE[i]   = EEPROM.read(addr_offset++);           // Reads stored Mode value per band
   }
+
+  isWifiEnabled   = EEPROM.read(addr_offset++);
 
   EEPROM.end();
 
@@ -1122,6 +1121,7 @@ void disableCommands()
   cmdCal = false;
   cmdBrt = false;
   cmdAvc = false;
+  cmdWifi = false;
   cmdSaved = false;
 }
 
@@ -1899,6 +1899,11 @@ void doCurrentMenuCmd() {
       showAvc(); 
       break;
 
+    case WIFI:
+    cmdWifi = true;
+    drawSprite();
+    break;
+
     case SAVED:
       cmdSaved = true;
       drawSprite();
@@ -1916,7 +1921,7 @@ void doCurrentMenuCmd() {
  * Return true if the current status is Menu command
  */
 bool isMenuMode() {
-  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc | cmdSaved);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
+  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc | cmdWifi | cmdSaved);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
 }
 
 uint8_t getStrength() {
@@ -2024,6 +2029,14 @@ void drawMenu() {
         spr.drawString(savedDesc[abs((savedIdx+lastSavedDesc+1+i)%(lastSavedDesc+1))].name,38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y+(i*16),2);
       }
     }
+    if (cmdWifi) {
+      spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+16,66+menu_delta_x,16,2,wifiIdx ? TFT_MENU_BACK : 0x105B);
+      spr.setTextColor(0xBEDF,wifiIdx ? TFT_MENU_BACK : 0x105B);
+      spr.drawString(wifiDesc[0],38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y-16,2);
+      spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+(2*16),66+menu_delta_x,16,2,wifiIdx ? 0x105B : TFT_MENU_BACK);
+      spr.setTextColor(0xBEDF,wifiIdx ? 0x105B : TFT_MENU_BACK);
+      spr.drawString(wifiDesc[1],38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y,2);
+    }
     if (cmdVolume) {
       spr.setTextColor(0xBEDF,TFT_MENU_BACK);
       spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+(2*16),66+menu_delta_x,16,2,TFT_MENU_BACK);
@@ -2079,7 +2092,12 @@ void drawMenu() {
   }
 }
 
-
+bool isWifiEnabledAndActive(void)
+{
+  if (isWifiEnabled == true && WiFi.status() == WL_CONNECTED)
+    return true;
+  return false;
+}
 
 // G8PTN: Alternative layout
 void drawSprite()
@@ -2111,9 +2129,20 @@ void drawSprite()
   else spr.fillCircle(clock_datum+70,11,5,TFT_BLACK); 
 
   // Wifi address
-  spr.setTextColor(TFT_CYAN,WiFi.status() == WL_CONNECTED ? TFT_BLUE : TFT_RED);
   spr.setTextDatum(ML_DATUM);
-  spr.drawString(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "no wifi",clock_datum+90,12,2);
+  uint16_t wifi_text_color = TFT_BLUE;
+  String wifi_text = "Wifi disabled";
+  if (isWifiEnabled == true) {
+    if (isWifiEnabledAndActive()) {
+      wifi_text_color = TFT_BLUE;
+      wifi_text = WiFi.localIP().toString();
+    } else {
+      wifi_text_color = TFT_RED;
+      wifi_text = "no wifi";
+    }
+  }
+  spr.setTextColor(TFT_CYAN,wifi_text_color);
+  spr.drawString(wifi_text,clock_datum+90,12,2);
   spr.setTextColor(TFT_WHITE,TFT_BLACK);
   
   if (currentMode == FM) {
@@ -2648,6 +2677,21 @@ void showAvc()
 drawSprite();
 }
 
+void doWifi(int8_t v)
+{
+  wifiIdx = (v == 1) ? wifiIdx + 1 : wifiIdx - 1;
+
+  if ((int8_t)wifiIdx > lastWifiDesc) {
+    wifiIdx = lastWifiDesc;
+  } else if ((int8_t)wifiIdx < 0)
+  wifiIdx = 0;
+
+  isWifiEnabled = wifiIdx;
+
+  drawSprite();
+  delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
+}
+
 void doSaved(int8_t v)
 {
   savedIdx = (v == 1) ? savedIdx + 1 : savedIdx - 1;
@@ -2768,6 +2812,8 @@ void loop()
       doBrt(encoderCount);
     else if (cmdAvc)
       doAvc(encoderCount);
+    else if (cmdWifi)
+      doWifi(encoderCount);
     else if (cmdSaved)
       doSaved(encoderCount);
 
@@ -3023,7 +3069,7 @@ void loop()
 #endif
     
   // Run clock
-  if (WiFi.status() == WL_CONNECTED) {
+  if (isWifiEnabledAndActive()) {
     timeClient.update();
     hours = timeClient.getHours();
     minutes = timeClient.getMinutes();
@@ -3164,7 +3210,7 @@ void loop()
   
 #endif
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (isWifiEnabledAndActive()) {
     server.handleClient();
   }
   // Add a small default delay in the main loop
