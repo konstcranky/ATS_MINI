@@ -149,10 +149,14 @@
 
 
 //Timezone Offset in seconds
-const long utcOffsetInSeconds = 25200;
+const long utcOffsetInSeconds = 7200;
+#define USE_SECRETS_FILE 1 // change to 0 if want to use ssid and password from this file
+#if USE_SECRETS_FILE
+#include "secrets.h"
+#else
 const char* ssid = "WiFi_SSID";
 const char* password =  "WiFi_Password";
-
+#endif
 WebServer server(80);
 
 
@@ -745,27 +749,31 @@ void setup()
   tft.println();
   tft.println("To reset EEPROM");
   tft.println("Press+Hold ENC Button");
-  tft.println();     
+  tft.println();
+  tft.println("Connecting to Wifi...");
+  tft.println();
   
   WiFi.mode(WIFI_STA); //Optional
   WiFi.begin(ssid, password);
   Serial.println("\nConnecting");
-  while(WiFi.status() != WL_CONNECTED){
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println("\nConnected to the WiFi network");
-  Serial.print("Local ESP32 IP: ");
-  Serial.println(WiFi.localIP());
-  timeClient.update();
+  // while(WiFi.status() != WL_CONNECTED){
+  //   Serial.print(".");
+  //   delay(500);
+  // }
+  // Serial.println("\nConnected to the WiFi network");
+  // Serial.print("Local ESP32 IP: ");
+  // Serial.println(WiFi.localIP());
+
+  // let it work in loop()
+  // timeClient.update();
 
   server.on("/", handle_OnConnect);
   server.onNotFound(handle_NotFound);
   server.begin();
   Serial.println("HTTP server started");
 
-  tft.println("IP Address : ");
-  tft.println(WiFi.localIP());
+  // tft.println("IP Address : ");
+  // tft.println(WiFi.localIP());
   
   delay(3000);
 
@@ -2102,6 +2110,12 @@ void drawSprite()
   }
   else spr.fillCircle(clock_datum+70,11,5,TFT_BLACK); 
 
+  // Wifi address
+  spr.setTextColor(TFT_CYAN,WiFi.status() == WL_CONNECTED ? TFT_BLUE : TFT_RED);
+  spr.setTextDatum(ML_DATUM);
+  spr.drawString(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "no wifi",clock_datum+90,12,2);
+  spr.setTextColor(TFT_WHITE,TFT_BLACK);
+  
   if (currentMode == FM) {
     spr.setTextDatum(MR_DATUM);
     spr.drawFloat(currentFrequency/100.00,2,freq_offset_x,freq_offset_y,7);
@@ -3009,12 +3023,14 @@ void loop()
 #endif
     
   // Run clock
-  //clock_time();
-  timeClient.update();
-  hours = timeClient.getHours();
-  minutes = timeClient.getMinutes();
-  sprintf(time_disp, "%2.2d:%2.2d", hours, minutes);  
-
+  if (WiFi.status() == WL_CONNECTED) {
+    timeClient.update();
+    hours = timeClient.getHours();
+    minutes = timeClient.getMinutes();
+    sprintf(time_disp, "%2.2d:%2.2d", hours, minutes);  
+  } else {
+    clock_time();
+  }
 
 #if USE_REMOTE
   // REMOTE Serial - Experimental
@@ -3148,7 +3164,9 @@ void loop()
   
 #endif
 
-  server.handleClient();
+  if (WiFi.status() == WL_CONNECTED) {
+    server.handleClient();
+  }
   // Add a small default delay in the main loop
   delay(5);
 }
