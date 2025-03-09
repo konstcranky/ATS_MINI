@@ -197,7 +197,7 @@ WebServer server(80);
 #define DEBUG4_PRINT 0        // Lowest level  - EEPROM
 
 // Remote Control
-#define USE_REMOTE 1          // Allows basic serial control and monitoring
+#define USE_REMOTE 0          // Allows basic serial control and monitoring
 
 // Tune hold off enable (0 = Disable, 1 = Enable)
 #define TUNE_HOLDOFF 1        // Whilst tuning holds off display update
