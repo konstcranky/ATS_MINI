@@ -279,8 +279,9 @@ int8_t isWifiEnabled = false;
 #else
 #define SPARE2      14
 #endif
-#define WIFI        15
-#define SAVED       16
+#define SPOINTMUTE  15
+#define WIFI        16
+#define SAVED       17
 
 
 #define TFT_MENU_BACK TFT_BLACK              // 0x01E9
@@ -336,6 +337,7 @@ bool cmdSoftMuteMaxAtt = false;
 bool cmdCal = false;
 bool cmdBrt = false;
 bool cmdAvc = false;
+bool cmdSPointMute = false;
 bool cmdWifi = false;
 bool cmdSaved = false;
 
@@ -418,6 +420,8 @@ uint32_t g_remote_timer = millis();
 uint8_t g_remote_seqnum = 0;
 #endif
 
+int8_t SPointMuteIdx = 0;
+bool isSquelchEnabled = false;
 
 // Tables
 
@@ -435,8 +439,8 @@ const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",  
 // Without BFO        <---- 00 ----> <---- 01 ----> <---- 02 ----> <---- 03 ----> <---- 04 ----> <---- 05 ----> <---- 06 ----> <---- 07 ----> <---- 08 ----> <---- 09 ---->
 const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",     "Bandwidth",      "Mute",      "AGC/ATTN",    "SoftMute",       "AVC",       "Spare 1",
 
-//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> <---- 15 ----> <---- 16 ---->
-                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2",      "Wifi",       "Saved"    };
+//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> <---- 15 ----> <---- 16 ----> <---- 17 ---->
+                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2",     "Squelch",      "Wifi",       "Saved"    };
 
 #endif
 
@@ -980,6 +984,9 @@ void saveAllReceiverInformation()
     EEPROM.commit();
   }  
 
+  EEPROM.write(addr_offset++,  SPointMuteIdx);
+  EEPROM.commit();
+
   EEPROM.write(addr_offset++,  isWifiEnabled);
   EEPROM.commit();
 
@@ -1036,6 +1043,8 @@ void readAllReceiverInformation()
     bandCAL[i]   |= EEPROM.read(addr_offset++);           // Reads stored Calibration value (LOW byte) per band
     bandMODE[i]   = EEPROM.read(addr_offset++);           // Reads stored Mode value per band
   }
+
+  SPointMuteIdx = EEPROM.read(addr_offset++);
 
   isWifiEnabled   = EEPROM.read(addr_offset++);
 
@@ -1121,6 +1130,7 @@ void disableCommands()
   cmdCal = false;
   cmdBrt = false;
   cmdAvc = false;
+  cmdSPointMute = false;
   cmdWifi = false;
   cmdSaved = false;
 }
@@ -1789,6 +1799,21 @@ void doSoftMute(int8_t v)
   }
 }
 
+void doPointMute(int8_t v)
+{
+  if      (v == 1)   SPointMuteIdx ++;
+  else if (v == -1)  SPointMuteIdx --;
+
+  // Limit range
+  if (SPointMuteIdx < 0)
+  SPointMuteIdx = 17;
+  else if (SPointMuteIdx > 17)
+  SPointMuteIdx = 0;
+
+  if (v != 0) drawSprite();
+  elapsedCommand = millis();
+}
+
 /**
  *  Menu options selection
  */
@@ -1899,6 +1924,11 @@ void doCurrentMenuCmd() {
       showAvc(); 
       break;
 
+    case SPOINTMUTE:
+    cmdSPointMute = true;
+    drawSprite();
+    break;
+
     case WIFI:
     cmdWifi = true;
     drawSprite();
@@ -1921,7 +1951,7 @@ void doCurrentMenuCmd() {
  * Return true if the current status is Menu command
  */
 bool isMenuMode() {
-  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc | cmdWifi | cmdSaved);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
+  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc | cmdSPointMute | cmdWifi | cmdSaved);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
 }
 
 uint8_t getStrength() {
@@ -2088,6 +2118,14 @@ void drawMenu() {
       spr.drawString("dB",38+menu_offset_x+(menu_delta_x/2),90+menu_offset_y,4);
     }
 
+    if (cmdSPointMute) {
+      spr.setTextColor(0xBEDF,TFT_MENU_BACK);
+      spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+(2*16),66+menu_delta_x,16,2,TFT_MENU_BACK);
+      spr.drawString("Mute Idx",38+menu_offset_x+(menu_delta_x/2),32+menu_offset_y,2);
+      spr.drawNumber(SPointMuteIdx,38+menu_offset_x+(menu_delta_x/2),60+menu_offset_y,4);
+      spr.drawString("0-DIS",38+menu_offset_x+(menu_delta_x/2),90+menu_offset_y,4);
+    }
+
     spr.setTextColor(TFT_WHITE,TFT_BLACK);
   }
 }
@@ -2224,10 +2262,10 @@ void drawSprite()
     */
 
     spr.drawString("VOL:",6+menu_offset_x,64+menu_offset_y+(2*16),2);
-    if (muted) {
+    if (muted || isSquelchEnabled) {
       //spr.setTextDatum(MR_DATUM);
       spr.setTextColor(TFT_WHITE,TFT_RED);
-      spr.drawString("Muted",48+menu_offset_x,64+menu_offset_y+(2*16),2);
+      spr.drawString(muted ? "Muted" : "Sql",48+menu_offset_x,64+menu_offset_y+(2*16),2);
       spr.setTextColor(TFT_WHITE,TFT_BLACK);
     }
     else spr.drawNumber(rx.getVolume(),48+menu_offset_x,64+menu_offset_y+(2*16),2);
@@ -2812,6 +2850,8 @@ void loop()
       doBrt(encoderCount);
     else if (cmdAvc)
       doAvc(encoderCount);
+    else if (cmdSPointMute)
+      doPointMute(encoderCount);
     else if (cmdWifi)
       doWifi(encoderCount);
     else if (cmdSaved)
@@ -2985,7 +3025,7 @@ void loop()
     Serial.print("Info: loop() >>> RSSI = ");
     Serial.println(rssi);
     #endif 
-    
+
     //if (rssi != aux && !isMenuMode())
     if (rssi != aux)                            // G8PTN: Based on 1.2s update, always allow S-Meter
     {
@@ -2998,6 +3038,26 @@ void loop()
       showRSSI();
     }
     elapsedRSSI = millis();
+  }
+
+  if (SPointMuteIdx > 0)
+  {
+    uint8_t signal_strength = getStrength();
+    if (SPointMuteIdx < signal_strength && isSquelchEnabled)
+    {
+      rx.setHardwareAudioMute(false);
+      isSquelchEnabled = false;
+    }
+    else if (SPointMuteIdx > signal_strength && !isSquelchEnabled)
+    {
+      rx.setHardwareAudioMute(true);
+      isSquelchEnabled = true;
+    }
+  }
+  else if (isSquelchEnabled)
+  {
+    isSquelchEnabled = false;
+    rx.setHardwareAudioMute(false);
   }
 
   // Disable commands control
