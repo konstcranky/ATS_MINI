@@ -305,6 +305,7 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 // ====================================================================================================================================================
 const uint8_t  app_id  = 65;          //               EEPROM ID.  If EEPROM read value mismatch, reset EEPROM            eeprom_address        1
 const uint16_t app_ver = 101;         //     v1.01     EEPROM VER. If EEPROM read value mismatch (older), reset EEPROM    eeprom_ver_address    2
+char app_date[] = "2025-03-07\0";
 const int eeprom_address = 0;         //               EEPROM start address
 const int eeprom_set_address = 256;   //               EEPROM setting base adddress
 const int eeprom_setp_address = 272;  //               EEPROM setting (per band) base adddress
@@ -378,11 +379,17 @@ int8_t AmSoftMuteIdx = 4;               // Default AM  = 4, range = 0 to 32
 int8_t SsbSoftMuteIdx = 4;              // Default SSB = 4, range = 0 to 32
 
 // Button checking
-unsigned long pb1_timer = millis();     // Push button timer
-int pb1_current;                        // Push button current state
-int pb1_last;                           // Push button last state (after debounce)
-uint16_t pb1_shift;                     // Debounce shift register
+unsigned long pb1_time = 0;             // Push button timer
+unsigned long pb1_edge_time = 0;        // Push button edge time
+unsigned long pb1_pressed_time = 0;     // Push button pressed time
+unsigned long pb1_released_time = 0;    // Push button released time
+int pb1_current = HIGH;                 // Push button current state
+int pb1_stable = HIGH;                  // Push button stable state
+int pb1_last = HIGH;                    // Push button last state (after debounce)
 bool pb1_pressed = false;               // Push button pressed
+bool pb1_long_pressed = false;          // Push button long pressed
+
+bool display_on = true;                 // Display state
 
 // Status bar icon flags
 bool screen_toggle = false;             // Toggle when drawsprite is called
@@ -753,8 +760,8 @@ void setup()
 
   uint16_t ver_major = (app_ver / 100);
   uint16_t ver_minor = (app_ver % 100);
-  char fw_ver [16];
-  sprintf(fw_ver, "F/W: v%1.1d.%2.2d", ver_major, ver_minor);
+  char fw_ver [24];
+  sprintf(fw_ver, "F/W: v%1.1d.%2.2d %s", ver_major, ver_minor, app_date);
   tft.println("ATS-Mini Receiver");
   tft.println(fw_ver);
   tft.println();
@@ -1271,11 +1278,13 @@ void setBand(int8_t up_down)
     if (ssbLoaded == false)
     {
       // Only loadSSB if not already loaded
-      spr.fillSmoothRoundRect(80,40,160,40,4,TFT_WHITE);
-      spr.fillSmoothRoundRect(81,41,158,38,4,TFT_MENU_BACK);
-      spr.drawString("Loading SSB",160,62,4);
-      spr.pushSprite(0,0);
-    
+      if (display_on) {
+        spr.fillSmoothRoundRect(80,40,160,40,4,TFT_WHITE);
+        spr.fillSmoothRoundRect(81,41,158,38,4,TFT_MENU_BACK);
+        spr.drawString("Loading SSB",160,62,4);
+        spr.pushSprite(0,0);
+      }
+
       loadSSB();
       ssbLoaded = true;  
     }
@@ -1491,7 +1500,9 @@ void doBandwidth(int8_t v)
  */
 void showCommandStatus(char * currentCmd)
 {
-  spr.drawString(currentCmd,38,14,2);
+  if (display_on) {
+    spr.drawString(currentCmd,38,14,2);
+  }
   drawSprite();
 }
 
@@ -1654,12 +1665,13 @@ void doMode(int8_t v)
       if (currentMode == AM)
       {
         // If you were in AM mode, it is necessary to load SSB patch (every time)
+        if (display_on) {
+          spr.fillSmoothRoundRect(80,40,160,40,4,TFT_WHITE);
+          spr.fillSmoothRoundRect(81,41,158,38,4,TFT_MENU_BACK);
+          spr.drawString("Loading SSB",160,62,4);
+          spr.pushSprite(0,0);
+        }
 
-        spr.fillSmoothRoundRect(80,40,160,40,4,TFT_WHITE);
-        spr.fillSmoothRoundRect(81,41,158,38,4,TFT_MENU_BACK);
-        spr.drawString("Loading SSB",160,62,4);
-        spr.pushSprite(0,0);
-        
         loadSSB();
         ssbLoaded = true;
         currentMode = LSB;
@@ -1680,11 +1692,13 @@ void doMode(int8_t v)
       {
         // If you were in AM mode, it is necessary to load SSB patch (every time)
 
-        spr.fillSmoothRoundRect(80,40,160,40,4,TFT_WHITE);
-        spr.fillSmoothRoundRect(81,41,158,38,4,TFT_MENU_BACK);
-        spr.drawString("Loading SSB",160,62,4);
-        spr.pushSprite(0,0);
-        
+        if (display_on) {
+          spr.fillSmoothRoundRect(80,40,160,40,4,TFT_WHITE);
+          spr.fillSmoothRoundRect(81,41,158,38,4,TFT_MENU_BACK);
+          spr.drawString("Loading SSB",160,62,4);
+          spr.pushSprite(0,0);
+        }
+
         loadSSB();
         ssbLoaded = true;
         currentMode = USB;
@@ -1996,7 +2010,7 @@ uint8_t getStrength() {
 
 // G8PTN: Alternative layout
 void drawMenu() {
-  if (cmdMenu) {
+  if (cmdMenu && display_on) {
     spr.fillSmoothRoundRect(1+menu_offset_x,1+menu_offset_y,76+menu_delta_x,110,4,TFT_RED);
     spr.fillSmoothRoundRect(2+menu_offset_x,2+menu_offset_y,74+menu_delta_x,108,4,TFT_MENU_BACK);
     spr.setTextColor(TFT_WHITE,TFT_MENU_BACK);
@@ -2140,6 +2154,7 @@ bool isWifiEnabledAndActive(void)
 // G8PTN: Alternative layout
 void drawSprite()
 {
+  if (!display_on) return;
   spr.fillSprite(TFT_BLACK);
   spr.setTextColor(TFT_WHITE,TFT_BLACK);
 
@@ -2426,36 +2441,38 @@ void batteryMonitor() {
   // 75 to 100          3
 
   switch (batt_soc_state) {
-    case 0:
-      if      (adc_volt_avr > (BATT_SOC_LEVEL1 + BATT_SOC_HYST_2)) batt_soc_state = 1;   // State 0 > 1
-      break;
+  case 0:
+    if      (adc_volt_avr > (BATT_SOC_LEVEL1 + BATT_SOC_HYST_2)) batt_soc_state = 1;   // State 0 > 1
+    break;
 
-    case 1:
-      if      (adc_volt_avr > (BATT_SOC_LEVEL2 + BATT_SOC_HYST_2)) batt_soc_state = 2;   // State 1 > 2
-      else if (adc_volt_avr < (BATT_SOC_LEVEL1 - BATT_SOC_HYST_2)) batt_soc_state = 0;   // State 1 > 0
-      break;
+  case 1:
+    if      (adc_volt_avr > (BATT_SOC_LEVEL2 + BATT_SOC_HYST_2)) batt_soc_state = 2;   // State 1 > 2
+    else if (adc_volt_avr < (BATT_SOC_LEVEL1 - BATT_SOC_HYST_2)) batt_soc_state = 0;   // State 1 > 0
+    break;
 
-    case 2:
-      if      (adc_volt_avr > (BATT_SOC_LEVEL3 + BATT_SOC_HYST_2)) batt_soc_state = 3;   // State 2 > 3
-      else if (adc_volt_avr < (BATT_SOC_LEVEL2 - BATT_SOC_HYST_2)) batt_soc_state = 1;   // State 2 > 1
-      break;
+  case 2:
+    if      (adc_volt_avr > (BATT_SOC_LEVEL3 + BATT_SOC_HYST_2)) batt_soc_state = 3;   // State 2 > 3
+    else if (adc_volt_avr < (BATT_SOC_LEVEL2 - BATT_SOC_HYST_2)) batt_soc_state = 1;   // State 2 > 1
+    break;
 
-    case 3:
-      if      (adc_volt_avr < (BATT_SOC_LEVEL3 - BATT_SOC_HYST_2)) batt_soc_state = 2;   // State 3 > 2
-      break;
+  case 3:
+    if      (adc_volt_avr < (BATT_SOC_LEVEL3 - BATT_SOC_HYST_2)) batt_soc_state = 2;   // State 3 > 2
+    break;
 
-    default:
-      if      (batt_soc_state > 3) batt_soc_state = 0;                                   // State (Illegal) > 0
-      else    batt_soc_state = batt_soc_state;                                           // Keep current state
-      break;   
-    }
+  default:
+    if      (batt_soc_state > 3) batt_soc_state = 0;                                   // State (Illegal) > 0
+    else    batt_soc_state = batt_soc_state;                                           // Keep current state
+    break;
+  }
 
-    // Debug
-    #if DEBUG3_PRINT
-    Serial.print("Info: batteryMonitor() >>> batt_soc_state = "); Serial.print(batt_soc_state); Serial.print(", ");
-    Serial.print("ADC count (average) = "); Serial.print(adc_read_avr); Serial.print(", "); 
-    Serial.print("ADC voltage (average) = "); Serial.println(adc_volt_avr);
-    #endif
+  // Debug
+#if DEBUG3_PRINT
+  Serial.print("Info: batteryMonitor() >>> batt_soc_state = "); Serial.print(batt_soc_state); Serial.print(", ");
+  Serial.print("ADC count (average) = "); Serial.print(adc_read_avr); Serial.print(", ");
+  Serial.print("ADC voltage (average) = "); Serial.println(adc_volt_avr);
+#endif
+
+  if (!display_on) return;
 
   // SOC display information
   // Variable: chargeLevel = pixel width, batteryLevelColor = Colour of level
@@ -2505,7 +2522,6 @@ void batteryMonitor() {
   spr.setTextColor(TFT_WHITE,TFT_BLACK);
   spr.setTextDatum(MC_DATUM);
   //spr.pushSprite(0,0);            // G8PTN: Not needed
-  
 }
 
 
@@ -2657,7 +2673,8 @@ void doBrt( uint16_t v ) {
     if (currentBrt < 32) currentBrt = 32;
   }
 
-  ledcWrite(0, currentBrt);
+  if (display_on)
+    ledcWrite(0, currentBrt);
   showBrt();
   delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
 }
@@ -2751,33 +2768,46 @@ void doSaved(int8_t v)
   delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
 }
 
-void button_check()
-{
+void button_check() {
   // G8PTN: Added
   // Push button detection
   // Only execute every 10 ms
-  if ((millis() - pb1_timer) > 10) {
-    pb1_timer = millis();  
-    pb1_current = digitalRead(ENCODER_PUSH_BUTTON);              // Read pin value
-    pb1_shift = (pb1_shift << 1 ) | (pb1_current) | 0xFF00;      // Shift register
-  
-    if ((pb1_shift == 0xFF00) && (pb1_last == 0)) {              // Falling edge
-      pb1_last = 1;
-      pb1_pressed = true;
-
-      // Debug
-      #if DEBUG2_PRINT
-      Serial.println("Info: button_check() >>> Button Pressed");
-      #endif
+  if ((millis() - pb1_time) > 10) {
+    pb1_time = millis();
+    pb1_current = digitalRead(ENCODER_PUSH_BUTTON);     // Read pin value
+    if (pb1_last != pb1_current) {
+      pb1_edge_time = millis();
+      pb1_last = pb1_current;
     }
 
-    else if ((pb1_shift == 0xFFFF) && (pb1_last == 1)) {         // Rising edge
-      pb1_last = 0;
-
-      // Debug
-      #if DEBUG2_PRINT
-      Serial.println("Info: button_check() >>> Button Released");
-      #endif
+    if ((millis() - pb1_edge_time) > 100) {
+      if (pb1_stable == HIGH && pb1_last == LOW) {       // button is pressed
+        // Debug
+        #if DEBUG2_PRINT
+        Serial.println("Info: button_check() >>> Button Pressed");
+        #endif
+        pb1_pressed_time = pb1_edge_time;
+        pb1_stable = pb1_current;
+      } else if (pb1_stable == LOW && pb1_last == HIGH) {       // button is released
+        // Debug
+        #if DEBUG2_PRINT
+        Serial.println("Info: button_check() >>> Button Released");
+        #endif
+        pb1_released_time = pb1_edge_time;
+        pb1_stable = pb1_current;
+        long pb1_press_duration = pb1_released_time - pb1_pressed_time;
+        if (pb1_press_duration < 500) {
+          pb1_pressed = true;
+          #if DEBUG2_PRINT
+          Serial.println("Info: button_check() >>> Short Press triggered");
+          #endif
+        } else {
+          pb1_long_pressed = true;
+          #if DEBUG2_PRINT
+          Serial.println("Info: button_check() >>> Long Press triggered");
+          #endif
+        }
+      }
     }
   }
 }
@@ -2804,6 +2834,21 @@ void clock_time()
     // Format for display HH:MM (24 hour format)
     sprintf(time_disp, "%2.2d:%2.2d", time_hours, time_minutes);  
   }
+}
+
+void displayOff() {
+  ledcWrite(PIN_LCD_BL, 0);
+  tft.writecommand(ST7789_DISPOFF);
+  tft.writecommand(ST7789_SLPIN);
+  delay(120);
+}
+
+void displayOn() {
+  tft.writecommand(ST7789_SLPOUT);
+  delay(120);
+  tft.writecommand(ST7789_DISPON);
+  ledcWrite(PIN_LCD_BL, currentBrt);
+  drawSprite();
 }
 
 /**
@@ -3005,6 +3050,14 @@ void loop()
       }
       delay(MIN_ELAPSED_TIME);
       elapsedCommand = millis();
+    } else if (pb1_long_pressed) {
+      pb1_long_pressed = false;
+      if (display_on) {
+        displayOff();
+      } else {
+        displayOn();
+      }
+      display_on = !display_on;
     }
   }
 
@@ -3261,6 +3314,14 @@ void loop()
           break;
         case 'l':                              // Backlight Down
           doBrt(-1);
+          break;
+
+        case 'O':
+          displayOff();
+          break;
+
+        case 'o':
+          displayOn();
           break;
 
         default:
