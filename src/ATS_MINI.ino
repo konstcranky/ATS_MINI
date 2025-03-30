@@ -2401,10 +2401,10 @@ void drawSprite()
       */
 
       spr.drawString("VOL:",6+menu_offset_x,64+menu_offset_y+(2*16),2);
-      if (muted) {
+      if (muted || isSquelchEnabled) {
         //spr.setTextDatum(MR_DATUM);
         spr.setTextColor(TFT_WHITE,TFT_RED);
-        spr.drawString("Muted",48+menu_offset_x,64+menu_offset_y+(2*16),2);
+        spr.drawString(muted ? "Muted" : "Sql",48+menu_offset_x,64+menu_offset_y+(2*16),2);
         spr.setTextColor(TFT_WHITE,TFT_BLACK);
       }
       else spr.drawNumber(rx.getVolume(),48+menu_offset_x,64+menu_offset_y+(2*16),2);
