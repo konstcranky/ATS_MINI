@@ -260,29 +260,31 @@ int8_t isWifiEnabled = false;
 #define AM  3
 
 // Menu Options
-#define BAND         0
-#define MODE         1
-#define VOLUME       2
-#define STEP         3
-#define BW           4
-#define MUTE         5
-#define AGC_ATT      6
-#define SOFTMUTE     7
-#define AVC          8
-#define SPARE1       9
-#define SEEKUP      10
-#define SEEKDOWN    11
-#define CALIBRATION 12
-#define BRIGHTNESS  13
+#define MENU_BAND         0
+#define MENU_MODE         1
+#define MENU_VOLUME       2
+#define MENU_STEP         3
+#define MENU_BW           4
+#define MENU_MUTE         5
+#define MENU_AGC_ATT      6
+#define MENU_SOFTMUTE     7
+#define MENU_AVC          8
+#define MENU_SEEKUP       9
+#define MENU_SEEKDOWN    10
+#define MENU_CALIBRATION 11
+#define MENU_SETTINGS    12
 #if BFO_MENU_EN
-#define BFO         14
-#else
-#define SPARE2      14
+#define MENU_BFO         13
 #endif
-#define SPOINTMUTE  15
-#define WIFI        16
-#define SAVED       17
 
+#define MENU_SPOINTMUTE  14
+#define MENU_WIFI        15
+#define MENU_SAVED       16
+
+// Settings Options
+#define MENU_BRIGHTNESS   0
+#define MENU_SLEEP        1
+#define MENU_ABOUT        2
 
 #define TFT_MENU_BACK TFT_BLACK              // 0x01E9
 #define TFT_MENU_HIGHLIGHT_BACK TFT_BLUE
@@ -303,13 +305,13 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 // ====================================================================================================================================================
 // Update F/W version comment as required   F/W VER    Function                                                           Locn (dec)            Bytes
 // ====================================================================================================================================================
-const uint8_t  app_id  = 65;          //               EEPROM ID.  If EEPROM read value mismatch, reset EEPROM            eeprom_address        1
-const uint16_t app_ver = 101;         //     v1.01     EEPROM VER. If EEPROM read value mismatch (older), reset EEPROM    eeprom_ver_address    2
-char app_date[] = "2025-03-07\0";
+const uint8_t  app_id  = 66;          //               EEPROM ID.  If EEPROM read value mismatch, reset EEPROM            eeprom_address        1
+const uint16_t app_ver = 102;         //     v1.01     EEPROM VER. If EEPROM read value mismatch (older), reset EEPROM    eeprom_ver_address    2
+char app_date[] = "2025-03-09";
 const int eeprom_address = 0;         //               EEPROM start address
-const int eeprom_set_address = 256;   //               EEPROM setting base adddress
-const int eeprom_setp_address = 272;  //               EEPROM setting (per band) base adddress
-const int eeprom_ver_address = 496;   //               EEPROM version base adddress
+const int eeprom_set_address = 256;   //               EEPROM setting base address
+const int eeprom_setp_address = 272;  //               EEPROM setting (per band) base address
+const int eeprom_ver_address = 496;   //               EEPROM version base address
 
 long storeTime = millis();
 bool itIsTimeToSave = false;
@@ -336,7 +338,10 @@ bool cmdMode = false;
 bool cmdMenu = false;
 bool cmdSoftMuteMaxAtt = false;
 bool cmdCal = false;
+bool cmdSettings = false;
 bool cmdBrt = false;
+bool cmdSleep = false;
+bool cmdAbout = false;
 bool cmdAvc = false;
 bool cmdSPointMute = false;
 bool cmdWifi = false;
@@ -402,6 +407,8 @@ uint8_t mute_vol_val = 0;               // Volume level when mute is applied
 int16_t currentCAL = 0;                 // Calibration offset, +/- 1000Hz in steps of 10Hz
 uint16_t currentBrt = 128;              // Display brightness, range = 32 to 255 in steps of 32
 int8_t currentAVC = 48;                 // Selected AVC, range = 12 to 90 in steps of 2
+uint16_t currentSleep = 30;             // Display sleep timeout, range = 0 to 255 in steps of 5
+long elapsedSleep = millis();           // Display sleep timer
 
 // Background screen refresh
 uint32_t background_timer = millis();   // Background screen refresh timer.
@@ -439,22 +446,32 @@ const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",  
 
 
 //                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> 
-                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",     "BFO"     };
+                         "Seek Up",     "Seek Dn",   "Calibration",  "Settings",      "BFO"     };
 
 
 #else
-// Without BFO        <---- 00 ----> <---- 01 ----> <---- 02 ----> <---- 03 ----> <---- 04 ----> <---- 05 ----> <---- 06 ----> <---- 07 ----> <---- 08 ----> <---- 09 ---->
-const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",     "Bandwidth",      "Mute",      "AGC/ATTN",    "SoftMute",       "AVC",       "Spare 1",
+// Without BFO        <---- 00 ----> <---- 01 ----> <---- 02 ----> <---- 03 ----> <---- 04 ----> <---- 05 ----> <---- 06 ----> <---- 07 ----> <---- 08 ---->
+const char *menu[] = {    "Band",        "Mode",       "Volume",       "Step",     "Bandwidth",      "Mute",      "AGC/ATTN",    "SoftMute",       "AVC",
 
-//                    <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> <---- 15 ----> <---- 16 ----> <---- 17 ---->
-                         "Seek Up",     "Seek Dn",   "Calibration", "Brightness",    "Spare 2",     "Squelch",      "Wifi",       "Saved"    };
+//                    <---- 09 ----> <---- 10 ----> <---- 11 ----> <---- 12 ----> <---- 13 ----> <---- 14 ----> <---- 15 ----> <---- 16 ---->
+                         "Seek Up",     "Seek Dn",   "Calibration",  "Settings",     "Spare",      "Squelch",       "Wifi",       "Saved"    };
 
 #endif
 
-int8_t menuIdx = VOLUME;
+int8_t menuIdx = MENU_VOLUME;
 const int lastMenu = (sizeof menu / sizeof(char *)) - 1;
 int8_t currentMenuCmd = -1;
 
+const char *settingsMenu[] = {
+    "Brightness",
+    "Sleep",
+    "About",
+  };
+
+  int8_t settingsMenuIdx = MENU_BRIGHTNESS;
+  const int lastSettingsMenu = (sizeof settingsMenu / sizeof(char *)) - 1;
+  int8_t currentSettingsMenuCmd = -1;
+  
 typedef struct
 {
   uint8_t idx;      // SI473X device bandwidth index
@@ -496,19 +513,20 @@ Bandwidth bandwidthFM[] = {
     {4, "40k"}};
 const int lastBandwidthFM = (sizeof bandwidthFM / sizeof(Bandwidth)) - 1;
 
-
-int tabAmStep[] = {1,      // 0   AM/SSB   (kHz)
-                   5,      // 1   AM/SSB   (kHz)
-                   9,      // 2   AM/SSB   (kHz)
-                   10,     // 3   AM/SSB   (kHz)
-                   50,     // 4   AM       (kHz)
-                   100,    // 5   AM       (kHz)
-                   1000,   // 6   AM       (kHz)
-                   10,     // 7   SSB      (Hz)
-                   25,     // 8   SSB      (Hz)
-                   50,     // 9   SSB      (Hz)
-                   100,    // 10  SSB      (Hz)
-                   500};   // 11  SSB      (Hz)
+int tabAmStep[] = {
+  1,      // 0   AM/SSB   (kHz)
+  5,      // 1   AM/SSB   (kHz)
+  9,      // 2   AM/SSB   (kHz)
+  10,     // 3   AM/SSB   (kHz)
+  50,     // 4   AM       (kHz)
+  100,    // 5   AM       (kHz)
+  1000,   // 6   AM       (kHz)
+  10,     // 7   SSB      (Hz)
+  25,     // 8   SSB      (Hz)
+  50,     // 9   SSB      (Hz)
+  100,    // 10  SSB      (Hz)
+  500     // 11  SSB      (Hz)
+};
 
 uint8_t AmTotalSteps = 7;                          // Total AM steps
 uint8_t AmTotalStepsSsb = 4;                       // G8PTN: Original : AM(LW/MW) 1k, 5k, 9k, 10k, 50k        : SSB 1k, 5k, 9k, 10k
@@ -518,9 +536,7 @@ uint8_t AmTotalStepsSsb = 4;                       // G8PTN: Original : AM(LW/MW
 uint8_t SsbTotalSteps = 5;                         // SSB sub 1kHz steps 
 volatile int8_t idxAmStep = 3;
 
-
 const char *AmSsbStepDesc[] = {"1k", "5k", "9k", "10k", "50k", "100k", "1M", "10Hz", "25Hz", "50Hz", "0.1k", "0.5k"};
-
 
 int tabFmStep[] = {5, 10, 20, 100};                             // G8PTN: Added 1MHz step
 const int lastFmStep = (sizeof tabFmStep / sizeof(int)) - 1;
@@ -528,9 +544,7 @@ int idxFmStep = 1;
 
 const char *FmStepDesc[] = {"50k", "100k", "200k", "1M"};
 
-
 uint16_t currentStepIdx = 1;
-
 
 const char *bandModeDesc[] = {"FM", "LSB", "USB", "AM"};
 const int lastBandModeDesc = (sizeof bandModeDesc / sizeof(char *)) - 1;
@@ -594,8 +608,8 @@ typedef struct
 /*
    Band table
    YOU CAN CONFIGURE YOUR OWN BAND PLAN. Be guided by the comments.
-   To add a new band, all you have to do is insert a new line in the table below. No extra code will be needed.
-   You can remove a band by deleting a line if you do not want a given band. 
+   To add a new band, all you have to do is insert a new line in the table below and adjust the bandCAL and bandMODE size.
+   No extra code will be needed. You can remove a band by deleting a line if you do not want a given band.
    Also, you can change the parameters of the band.
    ATTENTION: You have to RESET the eeprom after adding or removing a line of this table. 
               Turn your receiver on with the encoder push button pressed at first time to RESET the eeprom content.  
@@ -628,7 +642,6 @@ int bandIdx = 0;
 
 //int tabStep[] = {1, 5, 10, 50, 100, 500, 1000};
 //const int lastStep = (sizeof tabStep / sizeof(int)) - 1;
-
 
 // Calibration (per band). Size needs to be the same as band[]
 // Defaults
@@ -715,6 +728,14 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", utcOffsetInSeconds);
 int hours = 0;
 int minutes = 0;
 
+char fw_ver [25];
+
+void get_fw_ver() {
+    uint16_t ver_major = (app_ver / 100);
+    uint16_t ver_minor = (app_ver % 100);
+    sprintf(fw_ver, "F/W: v%1.1d.%2.2d %s", ver_major, ver_minor, app_date);
+}
+
 void setup()
 {
   // Enable Serial. G8PTN: Added
@@ -755,35 +776,40 @@ void setup()
   ledcWrite(0, 255);                // Default value 255 = 100%)
 
   // Display startup information
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  // tft.setTextSize(2);
+  // tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
-  uint16_t ver_major = (app_ver / 100);
-  uint16_t ver_minor = (app_ver % 100);
-  char fw_ver [24];
-  sprintf(fw_ver, "F/W: v%1.1d.%2.2d %s", ver_major, ver_minor, app_date);
-  tft.println("ATS-Mini Receiver");
-  tft.println(fw_ver);
-  tft.println();
-  tft.println("To reset EEPROM");
-  tft.println("Press+Hold ENC Button");
+  // uint16_t ver_major = (app_ver / 100);
+  // uint16_t ver_minor = (app_ver % 100);
+  // char fw_ver [24];
+  // sprintf(fw_ver, "F/W: v%1.1d.%2.2d %s", ver_major, ver_minor, app_date);
+  // tft.println("ATS-Mini Receiver");
+  // tft.println(fw_ver);
+  // tft.println();
+  // tft.println("To reset EEPROM");
+  // tft.println("Press+Hold ENC Button");
   
-  delay(3000);
+  // delay(3000);
 
   // EEPROM
   // Note: Use EEPROM.begin(EEPROM_SIZE) before use and EEPROM.begin.end after use to free up memory and avoid memory leaks
   EEPROM.begin(EEPROM_SIZE);
 
   // Press and hold Encoder button to force an EEPROM reset
-  // Indirectly forces the reset by setting app_id = 0 (Detectected in the subsequent check for app_id and app_ver)
+  // Indirectly forces the reset by setting app_id = 0 (Detected in the subsequent check for app_id and app_ver)
   // Note: EEPROM reset is recommended after firmware updates
-  if (digitalRead(ENCODER_PUSH_BUTTON) == LOW)
-  {
+  if (digitalRead(ENCODER_PUSH_BUTTON) == LOW) {
+
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    get_fw_ver();
+    tft.println(fw_ver);
+    tft.println();
     EEPROM.write(eeprom_address, 0);
     EEPROM.commit();
     tft.setTextColor(TFT_RED, TFT_BLACK);
     tft.print("EEPROM Resetting");
-    delay(1000);
+    delay(2000);
   }
 
   EEPROM.end();
@@ -980,6 +1006,8 @@ void saveAllReceiverInformation()
   EEPROM.write(addr_offset++, SsbAvcIdx);               // Stores the current SSB AVC index value
   EEPROM.write(addr_offset++, AmSoftMuteIdx);           // Stores the current AM SoftMute index value
   EEPROM.write(addr_offset++, SsbSoftMuteIdx);          // Stores the current SSB SoftMute index value
+  EEPROM.write(addr_offset++, currentSleep >> 8);       // Stores the current Sleep value (HIGH byte)
+  EEPROM.write(addr_offset++, currentSleep & 0XFF);     // Stores the current Sleep value (LOW byte)
   EEPROM.commit();
 
   addr_offset = eeprom_setp_address;
@@ -1042,6 +1070,8 @@ void readAllReceiverInformation()
   SsbAvcIdx       = EEPROM.read(addr_offset++);           // Reads stored SSB AVC index value
   AmSoftMuteIdx   = EEPROM.read(addr_offset++);           // Reads stored AM SoftMute index value
   SsbSoftMuteIdx  = EEPROM.read(addr_offset++);           // Reads stored SSB SoftMute index value
+  currentSleep    = EEPROM.read(addr_offset++) << 8;      // Reads stored Sleep value (HIGH byte)
+  currentSleep   |= EEPROM.read(addr_offset++);           // Reads stored Sleep value (LOW byte)
 
   addr_offset = eeprom_setp_address;
   for (int i = 0; i <= lastBand; i++)
@@ -1135,7 +1165,10 @@ void disableCommands()
   countClick = 0;
   // showCommandStatus((char *) "VFO ");
   cmdCal = false;
+  cmdSettings = false;
   cmdBrt = false;
+  cmdSleep = false;
+  cmdAbout = false;
   cmdAvc = false;
   cmdSPointMute = false;
   cmdWifi = false;
@@ -1148,7 +1181,7 @@ void disableCommands()
  * if you do not add ICACHE_RAM_ATTR declaration, the system will reboot during attachInterrupt call. 
  * With ICACHE_RAM_ATTR macro you put the function on the RAM.
  */
-ICACHE_RAM_ATTR void  rotaryEncoder()
+ICACHE_RAM_ATTR void rotaryEncoder()
 { // rotary encoder events
   uint8_t encoderStatus = encoder.process();
   if (encoderStatus) {
@@ -1215,7 +1248,6 @@ void showAgcAtt()
     sprintf(sAgc, "ATT: %2.2d", agcNdx);
 
   drawSprite();
-
 }
 
 /**
@@ -1503,13 +1535,6 @@ void showCommandStatus(char * currentCmd)
   if (display_on) {
     spr.drawString(currentCmd,38,14,2);
   }
-  drawSprite();
-}
-
-/**
- * Show menu options
- */
-void showMenu() {
   drawSprite();
 }
 
@@ -1844,6 +1869,30 @@ void doMenu( int8_t v) {
   elapsedCommand = millis();
 }
 
+/**
+ * Show menu options
+ */
+void showMenu() {
+  drawSprite();
+}
+
+
+void doSettings( uint8_t v ) {
+  settingsMenuIdx = (v == 1) ? settingsMenuIdx + 1 : settingsMenuIdx - 1;
+
+  if (settingsMenuIdx > lastSettingsMenu)
+    settingsMenuIdx = 0;
+  else if (settingsMenuIdx < 0)
+    settingsMenuIdx = lastSettingsMenu;
+
+  showSettings();
+  delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
+  elapsedCommand = millis();
+}
+
+void showSettings() {
+  drawSprite();
+}
 
 /**
  * Starts the MENU action process
@@ -1851,7 +1900,7 @@ void doMenu( int8_t v) {
 void doCurrentMenuCmd() {
   disableCommands();
   switch (currentMenuCmd) {
-     case VOLUME:                   // VOLUME
+     case MENU_VOLUME:
       if(muted) {
         rx.setVolume(mute_vol_val);
         muted = false;
@@ -1859,16 +1908,16 @@ void doCurrentMenuCmd() {
       cmdVolume = true;
       showVolume();
       break;
-    case STEP:                      // STEP
+    case MENU_STEP:
       cmdStep = true;
       showStep();
       break;
-    case MODE:                      // MODE
+    case MENU_MODE:
       cmdMode = true;
       showMode();
       break;
-    #if BFO_MENU_EN                 // BFO
-    case BFO:
+    #if BFO_MENU_EN
+    case MENU_BFO:
       if (isSSB()) {
         bfoOn = true;
         showBFO();
@@ -1876,35 +1925,35 @@ void doCurrentMenuCmd() {
       showFrequency();
       break;
     #endif     
-    case BW:                        // BW
+    case MENU_BW:                        // BW
       cmdBandwidth = true;
       showBandwidth();
       break;
-    case AGC_ATT:                   // AGC/ATT
+    case MENU_AGC_ATT:                   // AGC/ATT
       cmdAgc = true;
       showAgcAtt();
       break;
-    case SOFTMUTE:                  // SOFTMUTE
+    case MENU_SOFTMUTE:                  // SOFTMUTE
       if (currentMode != FM) {
         cmdSoftMuteMaxAtt = true;         
       }
       showSoftMute(); 
       break;
-    case SEEKUP:                    // SEEKUP
+    case MENU_SEEKUP:                    // SEEKUP
       seekStop = false;             // G8PTN: Flag is set by rotary encoder and cleared on seek entry
       seekDirection = 1;
       doSeek();
       break;  
-    case SEEKDOWN:                  // SEEKDOWN
+    case MENU_SEEKDOWN:                  // SEEKDOWN
       seekStop = false;             // G8PTN: Flag is set by rotary encoder and cleared on seek entry
       seekDirection = 0;
       doSeek();
       break;    
-    case BAND:                      // BAND
+    case MENU_BAND:                      // BAND
       cmdBand = true;
       drawSprite();  
       break;
-    case MUTE:                      // MUTE
+    case MENU_MUTE:                      // MUTE
       muted=!muted;
       if (muted)
       {
@@ -1916,7 +1965,7 @@ void doCurrentMenuCmd() {
       break;
 
     // G8PTN: Added
-    case CALIBRATION:               // CALIBRATION
+    case MENU_CALIBRATION:
       if (isSSB()) {
         cmdCal = true;
         currentCAL = bandCAL[bandIdx];
@@ -1925,36 +1974,35 @@ void doCurrentMenuCmd() {
       break;
 
     // G8PTN: Added
-    case BRIGHTNESS:                // BRIGHTNESS
-      cmdBrt = true;
-      showBrt(); 
-      break;
-
-    // G8PTN: Added
-    case AVC:                       // AVC
-      if (currentMode != FM) { 
+    case MENU_AVC:
+    if (currentMode != FM) { 
         cmdAvc = true;    
       }
       showAvc(); 
       break;
 
-    case SPOINTMUTE:
+    case MENU_SPOINTMUTE:
     cmdSPointMute = true;
     drawSprite();
     break;
 
-    case WIFI:
+    case MENU_WIFI:
     cmdWifi = true;
     drawSprite();
     break;
 
-    case SAVED:
+    case MENU_SAVED:
       cmdSaved = true;
       drawSprite();
       break;
 
-    default:
-      showStatus();
+    case MENU_SETTINGS:
+      cmdSettings = true;
+      drawSprite();
+      break;
+
+  default:
+            showStatus();
       break;
   }
   currentMenuCmd = -1;
@@ -1962,10 +2010,55 @@ void doCurrentMenuCmd() {
 }
 
 /**
+ * Starts the SETTINGS action process
+ */
+void doCurrentSettingsMenuCmd() {
+  disableCommands();
+  switch (currentSettingsMenuCmd) {
+  case MENU_BRIGHTNESS:
+      cmdBrt = true;
+      showBrt();
+      break;
+
+  case MENU_SLEEP:
+      cmdSleep = true;
+      showSleep();
+      break;
+
+  case MENU_ABOUT:
+      cmdAbout = true;
+      showAbout();
+      break;
+
+  default:
+      showStatus();
+      break;
+  }
+  currentSettingsMenuCmd = -1;
+  elapsedCommand = millis();
+}
+  
+/**
  * Return true if the current status is Menu command
  */
 bool isMenuMode() {
-  return (cmdMenu | cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand | cmdCal | cmdBrt | cmdAvc | cmdSPointMute | cmdWifi | cmdSaved);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
+  return (cmdMenu |
+          cmdStep |
+          cmdBandwidth |
+          cmdAgc |
+          cmdVolume |
+          cmdSoftMuteMaxAtt |
+          cmdMode |
+          cmdBand |
+          cmdCal |
+          cmdBrt |
+          cmdAvc |
+          cmdSettings |
+          cmdBrt |
+          cmdSleep |
+          cmdSPointMute |
+          cmdWifi |
+          cmdSaved);     // G8PTN: Added cmdBand, cmdCal, cmdBrt and cmdAvc
 }
 
 uint8_t getStrength() {
@@ -2010,7 +2103,9 @@ uint8_t getStrength() {
 
 // G8PTN: Alternative layout
 void drawMenu() {
-  if (cmdMenu && display_on) {
+  if (!display_on) return;
+
+  if (cmdMenu) {
     spr.fillSmoothRoundRect(1+menu_offset_x,1+menu_offset_y,76+menu_delta_x,110,4,TFT_RED);
     spr.fillSmoothRoundRect(2+menu_offset_x,2+menu_offset_y,74+menu_delta_x,108,4,TFT_MENU_BACK);
     spr.setTextColor(TFT_WHITE,TFT_MENU_BACK);
@@ -2028,11 +2123,29 @@ void drawMenu() {
       else spr.setTextColor(0xBEDF,TFT_MENU_BACK);
       spr.drawString(menu[abs((menuIdx+lastMenu+1+i)%(lastMenu+1))],38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y+(i*16),2);
     }
+  } else if (cmdSettings) {
+    spr.fillSmoothRoundRect(1+menu_offset_x,1+menu_offset_y,76+menu_delta_x,110,4,TFT_RED);
+    spr.fillSmoothRoundRect(2+menu_offset_x,2+menu_offset_y,74+menu_delta_x,108,4,TFT_MENU_BACK);
+    spr.setTextColor(TFT_WHITE,TFT_MENU_BACK);
+    spr.drawString("Settings",38+menu_offset_x+(menu_delta_x/2),14+menu_offset_y,2);
+
+    spr.setTextFont(0);
+    spr.setTextColor(0xBEDF,TFT_MENU_BACK);
+    spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+(2*16),66+menu_delta_x,16,2,0x105B);
+    for(int i=-2; i<3; i++) {
+      if (i==0) spr.setTextColor(0xBEDF,0x105B);
+      else spr.setTextColor(0xBEDF,TFT_MENU_BACK);
+      spr.drawString(settingsMenu[abs((settingsMenuIdx+lastSettingsMenu+1+i)%(lastSettingsMenu+1))],38+menu_offset_x+(menu_delta_x/2),64+menu_offset_y+(i*16),2);
+    }
   } else {
     spr.setTextColor(TFT_WHITE,TFT_MENU_BACK);    
     spr.fillSmoothRoundRect(1+menu_offset_x,1+menu_offset_y,76+menu_delta_x,110,4,TFT_RED);
     spr.fillSmoothRoundRect(2+menu_offset_x,2+menu_offset_y,74+menu_delta_x,108,4,TFT_MENU_BACK);
-    spr.drawString(menu[menuIdx],38+menu_offset_x+(menu_delta_x/2),14+menu_offset_y,2);
+    if (cmdBrt || cmdSleep) {
+      spr.drawString(settingsMenu[settingsMenuIdx],38+menu_offset_x+(menu_delta_x/2),14+menu_offset_y,2);
+    } else {
+      spr.drawString(menu[menuIdx],38+menu_offset_x+(menu_delta_x/2),14+menu_offset_y,2);
+    }
     spr.setTextFont(0);
     spr.setTextColor(0xBEDF,TFT_MENU_BACK);
     // spr.fillRect(6,24+(2*16),67,16,0xBEDF);
@@ -2117,19 +2230,25 @@ void drawMenu() {
     }
 
     // G8PTN: Added
-    if (cmdBrt) {
-      spr.setTextColor(0xBEDF,TFT_MENU_BACK);
-      spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+(2*16),66+menu_delta_x,16,2,TFT_MENU_BACK);
-      spr.drawNumber(currentBrt,38+menu_offset_x+(menu_delta_x/2),60+menu_offset_y,4);
-    }
-
-    // G8PTN: Added
     if (cmdAvc) {
       spr.setTextColor(0xBEDF,TFT_MENU_BACK);
       spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+(2*16),66+menu_delta_x,16,2,TFT_MENU_BACK);
       spr.drawString("Max Gain",38+menu_offset_x+(menu_delta_x/2),32+menu_offset_y,2);
       spr.drawNumber(currentAVC,38+menu_offset_x+(menu_delta_x/2),60+menu_offset_y,4);
       spr.drawString("dB",38+menu_offset_x+(menu_delta_x/2),90+menu_offset_y,4);
+    }
+
+    // G8PTN: Added
+    if (cmdBrt) {
+      spr.setTextColor(0xBEDF,TFT_MENU_BACK);
+      spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+(2*16),66+menu_delta_x,16,2,TFT_MENU_BACK);
+      spr.drawNumber(currentBrt,38+menu_offset_x+(menu_delta_x/2),60+menu_offset_y,4);
+    }
+
+    if (cmdSleep) {
+      spr.setTextColor(0xBEDF,TFT_MENU_BACK);
+      spr.fillRoundRect(6+menu_offset_x,24+menu_offset_y+(2*16),66+menu_delta_x,16,2,TFT_MENU_BACK);
+      spr.drawNumber(currentSleep,38+menu_offset_x+(menu_delta_x/2),60+menu_offset_y,4);
     }
 
     if (cmdSPointMute) {
@@ -2198,163 +2317,163 @@ void drawSprite()
   spr.drawString(wifi_text,clock_datum+90,12,2);
   spr.setTextColor(TFT_WHITE,TFT_BLACK);
   
-  if (currentMode == FM) {
-    spr.setTextDatum(MR_DATUM);
-    spr.drawFloat(currentFrequency/100.00,2,freq_offset_x,freq_offset_y,7);
-    spr.setTextDatum(ML_DATUM);
-    spr.drawString("MHz",funit_offset_x,funit_offset_y,4);
+  if (cmdAbout) {
+    spr.setTextDatum(TL_DATUM);
+    spr.drawString("ESP32-SI4732 Receiver", menu_offset_x, menu_offset_y + 4, 4);
+    get_fw_ver();
+    spr.drawString(fw_ver, menu_offset_x + 2, menu_offset_y+33, 2);
+    spr.drawString("Authors: PU2CLR (Ricardo Caratti),", menu_offset_x + 2, menu_offset_y+33+16*2, 2);
+    spr.drawString("Volos Projects, ralphxavier, Synnygold,", menu_offset_x + 2, menu_offset_y+33+16*3, 2);
+    spr.drawString("G8PTN (Dave), R9UCL (Max Arnold)", menu_offset_x + 2, menu_offset_y+33+16*4, 2);
     spr.setTextDatum(MC_DATUM);
-  }
-  else {
-    spr.setTextDatum(MR_DATUM);
-    if (isSSB()) {
-      uint32_t freq  = (uint32_t(currentFrequency) * 1000) + currentBFO;
-      uint16_t khz   = freq / 1000;
-      uint16_t tail  = (freq % 1000);
-      char skhz [32];
-      char stail [32];
-      sprintf(skhz, "%3.3u", khz);
-      sprintf(stail, ".%3.3d", tail);
-      spr.drawString(skhz,freq_offset_x,freq_offset_y,7);
-      spr.setTextDatum(ML_DATUM);
-      spr.drawString(stail,5+freq_offset_x,15+freq_offset_y,4);   
-    }
-    else {
-      spr.drawNumber(currentFrequency,freq_offset_x,freq_offset_y,7);
-      spr.setTextDatum(ML_DATUM);
-      spr.drawString(".000",5+freq_offset_x,15+freq_offset_y,4);
-     
-    }
-    spr.drawString("kHz",funit_offset_x,funit_offset_y,4); 
-    spr.setTextDatum(MC_DATUM);
-  }
-  
-  //if (isMenuMode() or cmdBand) drawMenu();
-  if (isMenuMode()) drawMenu();                      // G8PTN: Removed cmdBand, now part of isMenuMode() 
-  else {
-    countClick = 0;
-    spr.setTextDatum(ML_DATUM);
-    spr.setTextColor(TFT_WHITE,TFT_MENU_BACK);    
-    spr.fillSmoothRoundRect(1+menu_offset_x,1+menu_offset_y,76+menu_delta_x,110,4,TFT_WHITE);
-    spr.fillSmoothRoundRect(2+menu_offset_x,2+menu_offset_y,74+menu_delta_x,108,4,TFT_MENU_BACK);
-    spr.drawString("Band:",6+menu_offset_x,64+menu_offset_y+(-3*16),2);    
-    spr.drawString(band[bandIdx].bandName,48+menu_offset_x,64+menu_offset_y+(-3*16),2);
-    spr.drawString("Mode:",6+menu_offset_x,64+menu_offset_y+(-2*16),2);    
-    spr.drawString(bandModeDesc[currentMode],48+menu_offset_x,64+menu_offset_y+(-2*16),2);    
-    spr.drawString("Step:",6+menu_offset_x,64+menu_offset_y+(-1*16),2);
-    if (currentMode == FM) spr.drawString(FmStepDesc[currentStepIdx],48+menu_offset_x,64+menu_offset_y+(-1*16),2);
-    else spr.drawString(AmSsbStepDesc[currentStepIdx],48+menu_offset_x,64+menu_offset_y+(-1*16),2);
-    spr.drawString("BW:",6+menu_offset_x,64+menu_offset_y+(0*16),2);        
-    if (isSSB())
-    {
-      spr.drawString(bandwidthSSB[bwIdxSSB].desc,48+menu_offset_x,64+menu_offset_y+(0*16),2);
-    }
-    else if (currentMode == AM)
-    {
-      spr.drawString(bandwidthAM[bwIdxAM].desc,48+menu_offset_x,64+menu_offset_y+(0*16),2);
-    }
-    else
-    {
-      spr.drawString(bandwidthFM[bwIdxFM].desc,48+menu_offset_x,64+menu_offset_y+(0*16),2);
-    }
-    if (agcNdx == 0 && agcIdx == 0) {
-      spr.drawString("AGC:",6+menu_offset_x,64+menu_offset_y+(1*16),2);        
-      spr.drawString("On",48+menu_offset_x,64+menu_offset_y+(1*16),2);
-    } else {
-      sprintf(sAgc, "%2.2d", agcNdx);
-      spr.drawString("ATTN:",6+menu_offset_x,64+menu_offset_y+(1*16),2);        
-      spr.drawString(sAgc,48+menu_offset_x,64+menu_offset_y+(1*16),2);
-    }
-
-    /*
-    spr.drawString("BFO:",6+menu_offset_x,64+menu_offset_y+(2*16),2);
-    if (isSSB()) {
+  } else {
+    if (currentMode == FM) {
       spr.setTextDatum(MR_DATUM);
-      spr.drawString(bfo,74+menu_offset_x,64+menu_offset_y+(2*16),2);
-    }
-    else spr.drawString("Off",48+menu_offset_x,64+menu_offset_y+(2*16),2);
-    spr.setTextDatum(MC_DATUM);
-    */
-
-    spr.drawString("VOL:",6+menu_offset_x,64+menu_offset_y+(2*16),2);
-    if (muted || isSquelchEnabled) {
-      //spr.setTextDatum(MR_DATUM);
-      spr.setTextColor(TFT_WHITE,TFT_RED);
-      spr.drawString(muted ? "Muted" : "Sql",48+menu_offset_x,64+menu_offset_y+(2*16),2);
-      spr.setTextColor(TFT_WHITE,TFT_BLACK);
-    }
-    else spr.drawNumber(rx.getVolume(),48+menu_offset_x,64+menu_offset_y+(2*16),2);
-    spr.setTextDatum(MC_DATUM);
-    
-  }
-
-  if (bfoOn) {
-    spr.setTextColor(TFT_WHITE,TFT_BLACK);
-    spr.setTextDatum(ML_DATUM);
-    spr.drawString("BFO:",10,158,4);
-    spr.drawString(bfo,80,158,4);
-    spr.setTextDatum(MC_DATUM);    
-  
-  }
-
-
-  // S-Meter
-  for(int i=0;i<getStrength();i++)
-    if (i<10)
-      // Option 1 - Variable heaght bars
-      //spr.fillRect(244+(i*4),80-(i*1),2,4+(i*1),0x3526);
-      // Option 2 - Fixed heaght bars
-      //spr.fillRect(1+meter_offset_x+(i*8),1+meter_offset_y,3,20,0x3526);     // Option 2a 
-      spr.fillRect(1+meter_offset_x+(i*8),1+meter_offset_y,3,20,TFT_GREEN);    // Option 2b
-    else
-      // Option 1 - Variable heaght bars
-      //spr.fillRect(244+(i*4),80-(i*1),2,4+(i*1),TFT_RED);
-      // Option 2 - Fixed heaght bars
-      spr.fillRect(1+meter_offset_x+(i*8),1+meter_offset_y,3,20,TFT_RED);
-
-  // S-Meter Scale
-  //spr.drawLine(1+meter_offset_x,25+meter_offset_y,5+meter_offset_x+(15*8),25+meter_offset_y,TFT_DARKGREY);  // Option 2a
-  //spr.setTextColor(TFT_DARKGREY,TFT_BLACK);                                                                 // Option 2a
-  spr.drawLine(1+meter_offset_x,25+meter_offset_y,5+meter_offset_x+(15*8),25+meter_offset_y,TFT_WHITE);       // Option 2b
-  spr.setTextColor(TFT_WHITE,TFT_BLACK);                                                                      // Option 2b
-  
-  spr.drawString("S",1+meter_offset_x,45+meter_offset_y,2);
-  for(int i=0;i<16;i++)
-    {
-      if (i%2) {
-        //spr.drawLine(2+meter_offset_x+(i*8),25+meter_offset_y,2+meter_offset_x+(i*8),35+meter_offset_y,TFT_DARKGREY);  // Option 2a
-        spr.drawLine(2+meter_offset_x+(i*8),25+meter_offset_y,2+meter_offset_x+(i*8),35+meter_offset_y,TFT_WHITE);       // Option 2b
-        if (i < 10)  spr.drawNumber(i,2+meter_offset_x+(i*8),45+meter_offset_y,2);
-        if (i == 13) spr.drawString("+40",2+meter_offset_x+(i*8),45+meter_offset_y,2);
+      spr.drawFloat(currentFrequency/100.00,2,freq_offset_x,freq_offset_y,7);
+      spr.setTextDatum(ML_DATUM);
+      spr.drawString("MHz",funit_offset_x,funit_offset_y,4);
+      spr.setTextDatum(MC_DATUM);
+    } else {
+      spr.setTextDatum(MR_DATUM);
+      if (isSSB()) {
+        uint32_t freq  = (uint32_t(currentFrequency) * 1000) + currentBFO;
+        uint16_t khz   = freq / 1000;
+        uint16_t tail  = (freq % 1000);
+        char skhz [32];
+        char stail [32];
+        sprintf(skhz, "%3.3u", khz);
+        sprintf(stail, ".%3.3d", tail);
+        spr.drawString(skhz,freq_offset_x,freq_offset_y,7);
+        spr.setTextDatum(ML_DATUM);
+        spr.drawString(stail,5+freq_offset_x,15+freq_offset_y,4);
+      } else {
+        spr.drawNumber(currentFrequency,freq_offset_x,freq_offset_y,7);
+        spr.setTextDatum(ML_DATUM);
+        spr.drawString(".000",5+freq_offset_x,15+freq_offset_y,4);
       }
+      spr.drawString("kHz",funit_offset_x,funit_offset_y,4);
+      spr.setTextDatum(MC_DATUM);
     }
-  spr.setTextColor(TFT_WHITE,TFT_BLACK);
+    if (isMenuMode()) drawMenu();                      // G8PTN: Removed cmdBand, now part of isMenuMode()
+    else {
+      // countClick = 0;
+      spr.setTextDatum(ML_DATUM);
+      spr.setTextColor(TFT_WHITE,TFT_MENU_BACK);
+      spr.fillSmoothRoundRect(1+menu_offset_x,1+menu_offset_y,76+menu_delta_x,110,4,TFT_WHITE);
+      spr.fillSmoothRoundRect(2+menu_offset_x,2+menu_offset_y,74+menu_delta_x,108,4,TFT_MENU_BACK);
+      spr.drawString("Band:",6+menu_offset_x,64+menu_offset_y+(-3*16),2);
+      spr.drawString(band[bandIdx].bandName,48+menu_offset_x,64+menu_offset_y+(-3*16),2);
+      spr.drawString("Mode:",6+menu_offset_x,64+menu_offset_y+(-2*16),2);
+      spr.drawString(bandModeDesc[currentMode],48+menu_offset_x,64+menu_offset_y+(-2*16),2);
+      spr.drawString("Step:",6+menu_offset_x,64+menu_offset_y+(-1*16),2);
+      if (currentMode == FM) spr.drawString(FmStepDesc[currentStepIdx],48+menu_offset_x,64+menu_offset_y+(-1*16),2);
+      else spr.drawString(AmSsbStepDesc[currentStepIdx],48+menu_offset_x,64+menu_offset_y+(-1*16),2);
+      spr.drawString("BW:",6+menu_offset_x,64+menu_offset_y+(0*16),2);
+      if (isSSB())
+        {
+          spr.drawString(bandwidthSSB[bwIdxSSB].desc,48+menu_offset_x,64+menu_offset_y+(0*16),2);
+        }
+      else if (currentMode == AM)
+        {
+          spr.drawString(bandwidthAM[bwIdxAM].desc,48+menu_offset_x,64+menu_offset_y+(0*16),2);
+        }
+      else
+        {
+          spr.drawString(bandwidthFM[bwIdxFM].desc,48+menu_offset_x,64+menu_offset_y+(0*16),2);
+        }
+      if (agcNdx == 0 && agcIdx == 0) {
+        spr.drawString("AGC:",6+menu_offset_x,64+menu_offset_y+(1*16),2);
+        spr.drawString("On",48+menu_offset_x,64+menu_offset_y+(1*16),2);
+      } else {
+        sprintf(sAgc, "%2.2d", agcNdx);
+        spr.drawString("ATTN:",6+menu_offset_x,64+menu_offset_y+(1*16),2);
+        spr.drawString(sAgc,48+menu_offset_x,64+menu_offset_y+(1*16),2);
+      }
 
+      /*
+        spr.drawString("BFO:",6+menu_offset_x,64+menu_offset_y+(2*16),2);
+        if (isSSB()) {
+        spr.setTextDatum(MR_DATUM);
+        spr.drawString(bfo,74+menu_offset_x,64+menu_offset_y+(2*16),2);
+        }
+        else spr.drawString("Off",48+menu_offset_x,64+menu_offset_y+(2*16),2);
+        spr.setTextDatum(MC_DATUM);
+      */
 
-  if (currentMode == FM) {
-    spr.fillSmoothRoundRect(1+mode_offset_x,1+mode_offset_y,76,22,4,TFT_WHITE);
-    spr.fillSmoothRoundRect(2+mode_offset_x,2+mode_offset_y,74,20,4,TFT_BLACK);
-    if (rx.getCurrentPilot()) {
-      //spr.setTextColor(TFT_RED,TFT_BLACK);                                       // STEREO Option 1
-      spr.fillSmoothRoundRect(2+mode_offset_x,2+mode_offset_y,74,20,4,TFT_RED);    // STEREO Option 2
-      spr.setTextColor(TFT_WHITE,TFT_RED);                                         // STEREO Option 2
-      spr.drawString("STEREO",38+mode_offset_x,11+mode_offset_y,2);
-      spr.setTextColor(TFT_WHITE,TFT_BLACK);
-    } else spr.drawString("MONO",38+mode_offset_x,11+mode_offset_y,2);
+      spr.drawString("VOL:",6+menu_offset_x,64+menu_offset_y+(2*16),2);
+      if (muted) {
+        //spr.setTextDatum(MR_DATUM);
+        spr.setTextColor(TFT_WHITE,TFT_RED);
+        spr.drawString("Muted",48+menu_offset_x,64+menu_offset_y+(2*16),2);
+        spr.setTextColor(TFT_WHITE,TFT_BLACK);
+      }
+      else spr.drawNumber(rx.getVolume(),48+menu_offset_x,64+menu_offset_y+(2*16),2);
+      spr.setTextDatum(MC_DATUM);
+      
+    if (bfoOn) {
+        spr.setTextColor(TFT_WHITE,TFT_BLACK);
+      spr.setTextDatum(ML_DATUM);
+      spr.drawString("BFO:",10,158,4);
+      spr.drawString(bfo,80,158,4);
+      spr.setTextDatum(MC_DATUM);
+    }
+    // S-Meter
+    for(int i=0;i<getStrength();i++)
+      if (i<10)
+        // Option 1 - Variable heaght bars
+        //spr.fillRect(244+(i*4),80-(i*1),2,4+(i*1),0x3526);
+        // Option 2 - Fixed heaght bars
+        //spr.fillRect(1+meter_offset_x+(i*8),1+meter_offset_y,3,20,0x3526);     // Option 2a
+        spr.fillRect(1+meter_offset_x+(i*8),1+meter_offset_y,3,20,TFT_GREEN);    // Option 2b
+      else
+        // Option 1 - Variable heaght bars
+        //spr.fillRect(244+(i*4),80-(i*1),2,4+(i*1),TFT_RED);
+        // Option 2 - Fixed heaght bars
+        spr.fillRect(1+meter_offset_x+(i*8),1+meter_offset_y,3,20,TFT_RED);
 
-    // spr.setTextColor(TFT_MAGENTA,TFT_BLACK);
-    spr.setTextDatum(ML_DATUM);
-    spr.drawString(bufferStationName,rds_offset_x,rds_offset_y,4);
-    spr.setTextDatum(MC_DATUM);
-    // spr.setTextColor(TFT_WHITE,TFT_BLACK);    
+    // S-Meter Scale
+    //spr.drawLine(1+meter_offset_x,25+meter_offset_y,5+meter_offset_x+(15*8),25+meter_offset_y,TFT_DARKGREY);  // Option 2a
+    //spr.setTextColor(TFT_DARKGREY,TFT_BLACK);                                                                 // Option 2a
+    spr.drawLine(1+meter_offset_x,25+meter_offset_y,5+meter_offset_x+(15*8),25+meter_offset_y,TFT_WHITE);       // Option 2b
+    spr.setTextColor(TFT_WHITE,TFT_BLACK);                                                                      // Option 2b
+
+    spr.drawString("S",1+meter_offset_x,45+meter_offset_y,2);
+    for(int i=0;i<16;i++)
+      {
+        if (i%2) {
+          //spr.drawLine(2+meter_offset_x+(i*8),25+meter_offset_y,2+meter_offset_x+(i*8),35+meter_offset_y,TFT_DARKGREY);  // Option 2a
+          spr.drawLine(2+meter_offset_x+(i*8),25+meter_offset_y,2+meter_offset_x+(i*8),35+meter_offset_y,TFT_WHITE);       // Option 2b
+          if (i < 10)  spr.drawNumber(i,2+meter_offset_x+(i*8),45+meter_offset_y,2);
+          if (i == 13) spr.drawString("+40",2+meter_offset_x+(i*8),45+meter_offset_y,2);
+        }
+      }
+    spr.setTextColor(TFT_WHITE,TFT_BLACK);
+    if (currentMode == FM) {
+      spr.fillSmoothRoundRect(1+mode_offset_x,1+mode_offset_y,76,22,4,TFT_WHITE);
+      spr.fillSmoothRoundRect(2+mode_offset_x,2+mode_offset_y,74,20,4,TFT_BLACK);
+      if (rx.getCurrentPilot()) {
+        //spr.setTextColor(TFT_RED,TFT_BLACK);                                       // STEREO Option 1
+        spr.fillSmoothRoundRect(2+mode_offset_x,2+mode_offset_y,74,20,4,TFT_RED);    // STEREO Option 2
+        spr.setTextColor(TFT_WHITE,TFT_RED);                                         // STEREO Option 2
+        spr.drawString("STEREO",38+mode_offset_x,11+mode_offset_y,2);
+        spr.setTextColor(TFT_WHITE,TFT_BLACK);
+      } else spr.drawString("MONO",38+mode_offset_x,11+mode_offset_y,2);
+
+      // spr.setTextColor(TFT_MAGENTA,TFT_BLACK);
+      spr.setTextDatum(ML_DATUM);
+      spr.drawString(bufferStationName,rds_offset_x,rds_offset_y,4);
+      spr.setTextDatum(MC_DATUM);
+      // spr.setTextColor(TFT_WHITE,TFT_BLACK);
+    }
   }
     /*
-    else {
-    spr.fillSmoothRoundRect(1+mode_offset_x,1+mode_offset_y,76,22,4,TFT_WHITE);
-    spr.fillSmoothRoundRect(2+mode_offset_x,2+mode_offset_y,74,20,4,TFT_BLACK);  
-    spr.drawString(bandModeDesc[currentMode],38+mode_offset_x,11+mode_offset_y,2);
+      else {
+      spr.fillSmoothRoundRect(1+mode_offset_x,1+mode_offset_y,76,22,4,TFT_WHITE);
+      spr.fillSmoothRoundRect(2+mode_offset_x,2+mode_offset_y,74,20,4,TFT_BLACK);
+      spr.drawString(bandModeDesc[currentMode],38+mode_offset_x,11+mode_offset_y,2);
+    }
+    */
   }
-  */
 
 #if TUNE_HOLDOFF
   // Update if not tuning
@@ -2684,6 +2803,31 @@ void showBrt()
 drawSprite();
 }
 
+void doAbout( uint16_t v ) {
+  delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
+}
+
+void showAbout() {
+  drawSprite();
+}
+
+void doSleep( uint16_t v ) {
+  if ( v == 1) {
+    currentSleep = currentSleep + 5;
+    if (currentSleep > 255) currentSleep = 255;
+  } else {
+    if (currentSleep >= 5) currentSleep = currentSleep - 5;
+    else currentSleep = 0;
+  }
+
+  showSleep();
+  delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
+}
+
+void showSleep() {
+  drawSprite();
+}
+
 
 void doAvc(int16_t v) {
   // Only allow for AM and SSB modes
@@ -2837,6 +2981,7 @@ void clock_time()
 }
 
 void displayOff() {
+  display_on = false;
   ledcWrite(PIN_LCD_BL, 0);
   tft.writecommand(ST7789_DISPOFF);
   tft.writecommand(ST7789_SLPIN);
@@ -2844,6 +2989,7 @@ void displayOff() {
 }
 
 void displayOn() {
+  display_on = true;
   tft.writecommand(ST7789_SLPOUT);
   delay(120);
   tft.writecommand(ST7789_DISPON);
@@ -2858,8 +3004,12 @@ void loop()
 {
   
   // Check if the encoder has moved.
-  if (encoderCount != 0)
-  {
+  if (encoderCount != 0 && currentSleep && !display_on) {
+    elapsedSleep = millis();
+    displayOn();
+    encoderCount = 0;
+    delay(MIN_ELAPSED_TIME);
+  } else if (encoderCount != 0) {
     // G8PTN: The manual BFO adjusment is not required with the doFrequencyTuneSSB method, but leave for debug
     if (bfoOn & isSSB())
     {
@@ -2891,10 +3041,16 @@ void loop()
     // G8PTN: Added commands
     else if (cmdCal)
       doCal(encoderCount);
-    else if (cmdBrt)
-      doBrt(encoderCount);
     else if (cmdAvc)
       doAvc(encoderCount);
+    else if (cmdSettings)
+      doSettings(encoderCount);
+    else if (cmdBrt)
+      doBrt(encoderCount);
+    else if (cmdSleep)
+      doSleep(encoderCount);
+    else if (cmdAbout)
+      doAbout(encoderCount);
     else if (cmdSPointMute)
       doPointMute(encoderCount);
     else if (cmdWifi)
@@ -3005,6 +3161,7 @@ void loop()
     resetEepromDelay();
     delay(MIN_ELAPSED_TIME);
     elapsedCommand = millis();
+    elapsedSleep = millis();
   }
   else
   {
@@ -3015,15 +3172,20 @@ void loop()
       pb1_pressed = false;
       //while (digitalRead(ENCODER_PUSH_BUTTON) == LOW) { }
       countClick++;
-      if (cmdMenu)
-      {
+      elapsedSleep = millis();
+      if (currentSleep && !display_on) {
+        displayOn();
+      } else if (cmdMenu) {
         currentMenuCmd = menuIdx;
         doCurrentMenuCmd();
+      } else if (cmdSettings) {
+        currentSettingsMenuCmd = settingsMenuIdx;
+        doCurrentSettingsMenuCmd();
       }
       //else if (countClick == 1)
       else if (countClick >= 1)                   // G8PTN: All actions now done on single press
       { // If just one click, you can select the band by rotating the encoder
-        if (isMenuMode())
+        if (isMenuMode() || cmdAbout)
         {
           disableCommands();
           showStatus();
@@ -3037,8 +3199,8 @@ void loop()
         {
           //cmdBand = !cmdBand;
           cmdMenu = !cmdMenu;
-          menuIdx = VOLUME;          
           currentMenuCmd = menuIdx;
+          currentSettingsMenuCmd = settingsMenuIdx;
           drawSprite();
         }
       }
@@ -3057,7 +3219,13 @@ void loop()
       } else {
         displayOn();
       }
-      display_on = !display_on;
+    }
+  }
+
+  // Disable commands control
+  if (currentSleep && display_on) {
+    if ((millis() - elapsedSleep) > currentSleep * 1000) {
+      displayOff();
     }
   }
 
@@ -3125,6 +3293,9 @@ void loop()
     } 
     //else if (isMenuMode() or cmdBand) {
     else if (isMenuMode()) {                     // G8PTN: Removed cmdBand, now part of isMenuMode()
+      disableCommands();
+      showStatus();
+    } else if (cmdAbout) {
       disableCommands();
       showStatus();
     } 
